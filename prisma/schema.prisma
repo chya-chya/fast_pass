@@ -1,0 +1,98 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// 유저 정보:
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  password     String
+  name         String
+  refreshToken String?
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  events       Event[]
+}
+
+/// 대형 이벤트(예: 콘서트, 한정판 판매)
+model Event {
+  id           String        @id @default(cuid())
+  title        String
+  description  String?
+  performances Performance[]
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+/// 공연 회차 또는 판매 세션
+model Performance {
+  id             String   @id @default(cuid())
+  eventId        String
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  startAt        DateTime
+  totalSeats     Int
+  availableSeats Int      @default(0) // 잔여 수량 빠른 조회를 위한 비정규화 필드
+  seats          Seat[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([eventId, startAt]) // 특정 이벤트의 일자별 조회 최적화 [cite: 91]
+}
+
+/// 개별 좌석/상품 단위
+model Seat {
+  id            String      @id @default(cuid())
+  performanceId String
+  performance   Performance @relation(fields: [performanceId], references: [id], onDelete: Cascade)
+  seatNumber    String // 좌석 번호 (예: A1, B10)
+  status        SeatStatus  @default(AVAILABLE)
+
+  // 낙관적 락(Optimistic Lock)을 위한 필드: Raw Query 최적화 시 활용 [cite: 95]
+  version Int @default(0)
+
+  reservation Reservation?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([performanceId, seatNumber]) // 중복 예약 방지 제약
+  @@index([performanceId, status]) // 예약 가능 좌석 필터링 성능 향상
+}
+
+/// 예약 확정 내역
+model Reservation {
+  id         String            @id @default(cuid())
+  userId     String
+  user       User              @relation(fields: [userId], references: [id])
+  seatId     String            @unique
+  seat       Seat              @relation(fields: [seatId], references: [id])
+  status     ReservationStatus @default(PENDING)
+  reservedAt DateTime          @default(now())
+  paidAt     DateTime?
+
+  @@index([userId]) // 사용자의 마이페이지 조회 성능 향상
+}
+
+enum SeatStatus {
+  AVAILABLE
+  HELD // 잠시 선점된 상태 (Redis 분산 락 기간 중)
+  OCCUPIED // 최종 결제 완료
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
