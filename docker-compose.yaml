@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - '3001:3001'
+      - '3000:3000'
       - '51212:51212'
     volumes:
       - .:/app

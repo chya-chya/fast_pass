@@ -1,98 +1,132 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 🎫 Fast Pass (High-Performance Reservation System)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+대규모 트래픽 환경에서도 **데이터 정합성**을 보장하며 안정적으로 좌석을 예약할 수 있는 **선착순 예약 시스템**입니다.  
+콘서트 티켓팅, 수강 신경 등 경쟁이 치열한 예약 시나리오를 해결하기 위해 설계되었습니다.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## 🚀 Key Features
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **🔒 완벽한 동시성 제어 (Concurrency Control)**
+  - **1차 방어**: `Redis` 기반의 분산 락(Redlock)을 사용하여 다중 서버 환경에서의 레이스 컨디션 방어.
+  - **2차 방어**: `PostgreSQL`의 Optimistic Lock (Version checking)을 통해 락 만료 등의 엣지 케이스에서도 데이터 무결성 보장.
+- **⏱ 예약 만료 정책 (Auto Expiration)**
+  - 선점 후 일정 시간(default: 5~10분) 내 미결제 시 `NestJS Scheduler`가 자동으로 예약을 취소하고 좌석을 반환.
+- **🛡 보안 (Security)**
+  - `JWT` (Access Token) 기반 인증 시스템.
+  - `Bcrypt`를 이용한 비밀번호 암호화.
+- **📊 성능 중심 설계**
+  - `K6` 부하 테스트를 통해 500+ VUs(Virtual Users) 환경에서의 안정성 검증.
+  - Raw Query 및 인덱스 최적화를 통한 DB 성능 극대화.
 
-## Project setup
+---
 
-```bash
-$ npm install
-```
+## 🛠 Tech Stack
 
-## Compile and run the project
+| Category         | Technology               |
+| ---------------- | ------------------------ |
+| **Framework**    | NestJS (Node.js)         |
+| **Database**     | PostgreSQL, Prisma ORM   |
+| **Cache / Lock** | Redis (ioredis, redlock) |
+| **Testing**      | Jest, K6 (Load Testing)  |
+| **Infra**        | Docker, Docker Compose   |
+| **Language**     | TypeScript               |
 
-```bash
-# development
-$ npm run start
+---
 
-# watch mode
-$ npm run start:dev
+## ⚙️ Installation & Running
 
-# production mode
-$ npm run start:prod
-```
+### 1. Prerequisites
 
-## Run tests
+- Node.js (v18+)
+- Docker & Docker Compose
+
+### 2. Setup
 
 ```bash
-# unit tests
-$ npm run test
+# Repository Clone
+git clone https://github.com/chya-chya/fast_pass.git
+cd fast_pass
 
-# e2e tests
-$ npm run test:e2e
+# Install Dependencies
+npm install
 
-# test coverage
-$ npm run test:cov
+# Environment Setup
+# .env 파일을 생성하고 비밀키 등을 설정해야 합니다. (기본값은 docker-compose와 연동됨)
 ```
 
-## Deployment
+### 3. Run with Docker (Recommended)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+DB(Postgres), Redis, App을 한 번에 실행합니다.
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker-compose up -d --build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- **API Server**: `http://localhost:3000` (or 3001 depending on docker mapping)
+- **Swagger API Docs**: `http://localhost:3000/api`
 
-## Resources
+---
 
-Check out a few resources that may come in handy when working with NestJS:
+## 🧪 Testing
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Unit & E2E Test
 
-## Support
+```bash
+# Unit Tests
+npm run test
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+# E2E Tests
+npm run test:e2e
+```
 
-## Stay in touch
+### Load Test (K6)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+대규모 트래픽 시뮬레이션을 위해 K6 스크립트가 준비되어 있습니다.
 
-## License
+```bash
+# K6 설치 (Mac)
+brew install k6
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# 로컬 서버 실행 후 테스트 진행
+K6_WEB_DASHBOARD=true k6 run k6/load-test.js
+```
+
+---
+
+## 📝 API Documentation
+
+서버 실행 후 `/api` 경로로 접속하면 Swagger UI를 통해 명세를 확인할 수 있습니다.
+
+- `Auth`: 회원가입, 로그인
+- `Events`: 공연 이벤트 생성/조회
+- `Performances`: 회차(일시) 및 좌석 자동 생성
+- `Seats`: 좌석 상태 조회
+- `Reservations`: 좌석 선점(Lock), 결제 확정(Confirm), 취소(Cancel)
+
+---
+
+## 📂 Project Structure
+
+```text
+src/
+├── auth/           # 인증 (JWT, Passport)
+├── common/         # 공통 모듈 (Filter, Interceptor, Redis)
+├── event/          # 공연 이벤트 관리
+├── performance/    # 공연 회차 관리
+├── seat/           # 좌석 관리
+├── reservation/    # 핵심 예약 로직 (Service, Queue, Scheduler)
+└── prisma/         # DB 스키마 및 서비스
+```
+
+---
+
+## 📈 Performance Results (Summary)
+
+- **Concurrency**: 100% 데이터 정합성 보장 (500명 동시 요청 시 1명 성공, 499명 409 Conflict 반환).
+- **Latency**: 50 VU 기준 p(95) **21ms** 달성.
+
+---
+
+**Author**: Suyeon Cha  
+**Repository**: [https://github.com/chya-chya/fast_pass](https://github.com/chya-chya/fast_pass)
