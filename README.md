@@ -63,7 +63,7 @@ DB(Postgres), Redis, App을 한 번에 실행합니다.
 docker-compose up -d --build
 ```
 
-- **API Server**: `http://localhost:3000` (or 3001 depending on docker mapping)
+- **API Server**: `http://localhost:3000`
 - **Swagger API Docs**: `http://localhost:3000/api`
 
 ---

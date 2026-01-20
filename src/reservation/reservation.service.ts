@@ -3,12 +3,19 @@ import {
   Inject,
   ConflictException,
   NotFoundException,
-  InternalServerErrorException,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import Redis from 'ioredis';
 import Redlock, { Lock } from 'redlock';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+
+interface ReservationQueueData {
+  userId: string;
+  seatId: string;
+  id: string;
+  reservedAt: string;
+}
 
 @Injectable()
 export class ReservationService {
@@ -32,74 +39,120 @@ export class ReservationService {
   ) {
     const { seatId } = createReservationDto;
     const resource = `locks:seats:${seatId}`;
-    const ttl = 10000; // 10초 락 (결제 대기 시간 고려하여 조정 가능)
+    const ttl = 10000; // 10초 락
 
     let lock: Lock | undefined;
     try {
       lock = await this.redlock.acquire([resource], ttl);
     } catch {
-      // 락 획득 실패
       throw new ConflictException('이미 선택된 좌석입니다. (Lock)');
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        // 1. 좌석 상태 확인
-        const seat = await tx.seat.findUnique({ where: { id: seatId } });
+      // 1. Redis에서 좌석 상태 확인
+      const statusKey = `seat:${seatId}:status`;
+      const cachedStatus = await this.redisClient.get(statusKey);
+
+      if (cachedStatus && cachedStatus !== 'AVAILABLE') {
+        throw new ConflictException('이미 예약된 좌석입니다. (Cache)');
+      }
+
+      // 2. 캐시에 없으면 DB 확인 (최초 1회 warm-up 겸용)
+      if (!cachedStatus) {
+        const seat = await this.prisma.seat.findUnique({
+          where: { id: seatId },
+        });
         if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
         if (seat.status !== 'AVAILABLE') {
-          throw new ConflictException('이미 예약된 좌석입니다.');
+          // 상태가 정합하지 않으면 캐시 갱신 후 거절
+          await this.redisClient.set(statusKey, seat.status, 'EX', 600);
+          throw new ConflictException('이미 예약된 좌석입니다. (DB)');
+        }
+      }
+
+      // 3. Redis Queue에 예약 요청 추가 (Write-Back)
+      const reservationId = crypto.randomUUID();
+      const reservationData: ReservationQueueData = {
+        id: reservationId,
+        userId,
+        seatId,
+        reservedAt: new Date().toISOString(),
+      };
+
+      // 트랜잭션 대신 Redis Pipeline 사용 가능하지만 여기선 순차 처리
+      await this.redisClient.rpush(
+        'queue:reservations',
+        JSON.stringify(reservationData),
+      );
+
+      // 4. Redis 좌석 상태 'HELD'로 업데이트 (선점)
+      await this.redisClient.set(statusKey, 'HELD', 'EX', 600); // 10분 TTL
+
+      // 사용자에게는 성공 응답 즉시 반환
+      return {
+        ...reservationData,
+        reservedAt: new Date(reservationData.reservedAt),
+        status: 'PENDING',
+      };
+    } finally {
+      if (lock) {
+        await lock.release().catch((err) => {
+          console.error('Lock release failed', err);
+        });
+      }
+    }
+  }
+
+  async processNextReservation() {
+    const rawData = await this.redisClient.lpop('queue:reservations');
+    if (!rawData) return false; // Queue empty
+
+    const data = JSON.parse(rawData) as ReservationQueueData;
+    const { userId, seatId, id, reservedAt } = data;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const seat = await tx.seat.findUnique({ where: { id: seatId } });
+
+        if (!seat) {
+          throw new NotFoundException('좌석을 찾을 수 없습니다.');
         }
 
-        // 2. 좌석 상태 변경 (HELD) 및 Optimistic Lock 적용 (Raw Query)
-        const updateResult = await tx.$executeRaw`
-          UPDATE "Seat"
-          SET "status" = 'HELD'::"SeatStatus", "version" = "version" + 1
-          WHERE "id" = ${seatId} AND "version" = ${seat.version}
-        `;
-
-        if (Number(updateResult) !== 1) {
-          throw new ConflictException(
-            '좌석 정보가 변경되었습니다. 다시 시도해주세요.',
-          );
+        if (seat.status !== 'AVAILABLE') {
+          throw new ConflictException('DB: 이미 예약된 좌석입니다.');
         }
 
-        // 3. 예약 생성
-        const reservation = await tx.reservation.create({
+        // 좌석 상태 변경
+
+        await tx.seat.update({
+          where: { id: seatId },
+          data: { status: 'HELD' },
+        });
+
+        // 예약 생성
+
+        await tx.reservation.create({
           data: {
+            id, // Use UUID from Redis
             userId,
             seatId,
             status: 'PENDING',
+            reservedAt: new Date(reservedAt), // Preserve timestamp
           },
         });
 
-        // 4. 잔여 좌석 감소
+        // 잔여 좌석 감소
+
         await tx.performance.update({
           where: { id: seat.performanceId },
           data: { availableSeats: { decrement: 1 } },
         });
-
-        return reservation;
       });
+      return true; // Processed one
     } catch (error) {
-      // 트랜잭션 실패 시 처리
-      if (
-        error instanceof ConflictException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-      console.error('Reservation Error:', error);
-      throw new InternalServerErrorException(
-        '예약 처리 중 오류가 발생했습니다.',
-      );
-    } finally {
-      if (lock) {
-        await lock.release().catch((err) => {
-          // 락 해제 실패 로그 (TTL로 만료되므로 치명적이지 않음)
-          console.error('Lock release failed', err);
-        });
-      }
+      console.error(`Failed to process reservation ${id}:`, error);
+      await this.redisClient.del(`seat:${seatId}:status`);
+      return false;
     }
   }
 
