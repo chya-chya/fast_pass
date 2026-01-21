@@ -10,8 +10,10 @@
 - **🔒 완벽한 동시성 제어 (Concurrency Control)**
   - **1차 방어**: `Redis` 기반의 분산 락(Redlock)을 사용하여 다중 서버 환경에서의 레이스 컨디션 방어.
   - **2차 방어**: `PostgreSQL`의 Optimistic Lock (Version checking)을 통해 락 만료 등의 엣지 케이스에서도 데이터 무결성 보장.
-- **⏱ 예약 만료 정책 (Auto Expiration)**
-  - 선점 후 일정 시간(default: 5~10분) 내 미결제 시 `NestJS Scheduler`가 자동으로 예약을 취소하고 좌석을 반환.
+- **⚡ 고성능 비동기 쓰기 전략 (Write-Back Strategy)**
+  - 쓰기 지연 처리를 통한 처리량 극대화: 예약 요청 시 DB에 직접 Write 트랜잭션을 발생시키지 않고, Redis Queue에 우선 적재하여 DB의 I/O 부하를 분산.
+  - 응답성 개선: 사용자에게는 예약 접수(Pending) 상태를 즉시 응답하여 UX를 개선하고, 백그라운드 워커가 순차적으로 DB에 영속화하는 아키텍처 구현.
+  - 데이터 안정성 확보: Redis의 AOF(Append Only File) 설정과 noeviction 정책을 결합하여 비동기 처리 중 발생할 수 있는 데이터 유실 리스크를 최소화.
 - **🛡 보안 (Security)**
   - `JWT` (Access Token) 기반 인증 시스템.
   - `Bcrypt`를 이용한 비밀번호 암호화.
