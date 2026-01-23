@@ -27,9 +27,6 @@
 대규모 트래픽 상황에서 데이터 정합성을 유지하기 위한 예약 프로세스 flow입니다. 
 분산 락을 통한 동시성 제어와 Write-Back 전략을 통한 성능 최적화를 포함합니다.
 
-<details>
-<summary><b>시퀀스 다이어그램 보기 (Click)</b></summary>
-
 ```mermaid
 sequenceDiagram
     actor User
@@ -87,7 +84,6 @@ sequenceDiagram
     end
     end
 ```
-</details>
 
 ---
 
