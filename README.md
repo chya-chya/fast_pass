@@ -20,6 +20,74 @@
 - **📊 성능 중심 설계**
   - `K6` 부하 테스트를 통해 500+ VUs(Virtual Users) 환경에서의 안정성 검증.
   - Raw Query 및 인덱스 최적화를 통한 DB 성능 극대화.
+---
+
+## 🔄 Reservation Flow
+
+대규모 트래픽 상황에서 데이터 정합성을 유지하기 위한 예약 프로세스 flow입니다. 
+분산 락을 통한 동시성 제어와 Write-Back 전략을 통한 성능 최적화를 포함합니다.
+
+<details>
+<summary><b>시퀀스 다이어그램 보기 (Click)</b></summary>
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as ReservationController
+    participant Service as ReservationService
+    participant Redis
+    participant DB as Prisma(DB)
+
+    User->>API: POST /reservations
+    Note right of User: Body: { seatId }
+    API->>Service: reserveSeat(userId, dto)
+
+    rect rgb(240, 240, 240)
+    Note over Service, Redis: [Step 1] Distributed Lock (Concurrency Control)
+    Service->>Redis: Acquire Lock (locks:seats:{seatId})
+    alt Lock Failed
+        Redis-->>Service: Fail
+        Service-->>API: Throw ConflictException
+        API-->>User: 409 Conflict
+    else Lock Acquired
+        
+        Note over Service, Redis: [Step 2] Cache-aside Validation
+        Service->>Redis: GET seat:{seatId}:status
+
+        alt Cache Hit & Status != AVAILABLE
+            Redis-->>Service: Status (HELD/OCCUPIED)
+            Service-->>API: Throw ConflictException
+            API-->>User: 409 Conflict (Cache)
+        else Cache Miss or Status == AVAILABLE
+            
+            opt Cache Miss
+                Service->>DB: findUnique({ where: { id: seatId } })
+                alt Seat Not Found
+                    DB-->>Service: null
+                    Service-->>API: Throw NotFoundException
+                    API-->>User: 404 Not Found
+                else Seat Found (Status != AVAILABLE)
+                    DB-->>Service: Seat Data
+                    Service->>Redis: SET seat:{seatId}:status = Status
+                    Service-->>API: Throw ConflictException
+                    API-->>User: 409 Conflict (DB)
+                end
+            end
+
+            Note over Service, Redis: [Step 3] Write-Back Strategy
+            Service->>Redis: RPUSH queue:reservations (payload)
+            Service->>Redis: SET seat:{seatId}:status = 'HELD' (TTL 600s)
+
+            Note over Service, Redis: [Step 4] Release Lock
+            Service->>Redis: Release Lock
+
+            Service-->>API: Return Result (Status: PENDING)
+            API-->>User: 201 Created (PENDING)
+        end
+    end
+    end
+```
+</details>
 
 ---
 
