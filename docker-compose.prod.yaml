@@ -1,50 +1,42 @@
 services:
   db:
     image: postgres:latest
-    ports:
-      - '5433:5432'
+    restart: always
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=fast_pass
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-fast_pass}
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_prod_data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fast_pass}',
-        ]
-      interval: 3s
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fast_pass}']
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 5
+
   mongo:
     image: mongo:latest
-    ports:
-      - '27017:27017'
+    restart: always
     volumes:
-      - mongo_data:/data/db
+      - mongo_prod_data:/data/db
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
       timeout: 10s
       retries: 5
+
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+    restart: always
     ports:
       - '3000:3000'
-      - '51212:51212'
-    volumes:
-      - .:/app
     environment:
-      - NODE_ENV=development
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/fast_pass?connection_limit=150&pool_timeout=2
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-fast_pass}?schema=public&connection_limit=50
       - PORT=3000
-      - BASE_URL=http://localhost:3000
-      - PUBLIC_PATH=/app/public
-      - STATIC_PATH=/public
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_BUCKET_NAME=${AWS_BUCKET_NAME}
@@ -53,10 +45,8 @@ services:
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
       - REFRESH_EXPIRES_DAYS=${REFRESH_EXPIRES_DAYS}
-      - BROWSER=none
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-
     depends_on:
       db:
         condition: service_healthy
@@ -64,15 +54,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: npm run start:dev
 
   redis:
     image: redis:alpine
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis_data:/data
+    restart: always
     command: redis-server --appendonly yes
+    volumes:
+      - redis_prod_data:/data
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -81,6 +69,7 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    restart: always
     ports:
       - '9090:9090'
     volumes:
@@ -90,15 +79,16 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    restart: always
     ports:
       - '3001:3000'
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
     depends_on:
       - prometheus
 
 volumes:
-  postgres_data:
-  mongo_data:
-  redis_data:
+  postgres_prod_data:
+  mongo_prod_data:
+  redis_prod_data:

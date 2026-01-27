@@ -27,10 +27,16 @@ export class ReservationScheduler {
 
   @Interval(100)
   async handleReservationQueue() {
-    // 한 번에 최대 50개씩 처리
-    for (let i = 0; i < 50; i++) {
-      const processed = await this.reservationService.processNextReservation();
-      if (!processed) break;
+    try {
+      // 한 번에 최대 50개씩 처리
+      for (let i = 0; i < 50; i++) {
+        const processed = await this.reservationService.processNextReservation();
+        if (!processed) {
+          break;
+        }
+      }
+    } catch (error) {
+      this.logger.error('Failed to handle reservation queue', error);
     }
   }
 }

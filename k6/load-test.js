@@ -14,7 +14,7 @@ export const options = {
   },
 };
 
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'http://localhost:3000';
 
 export function setup() {
   console.log('Running Setup...');
