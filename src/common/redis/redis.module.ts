@@ -12,6 +12,8 @@ import Redis from 'ioredis';
         return new Redis({
           host: configService.get<string>('REDIS_HOST'),
           port: configService.get<number>('REDIS_PORT'),
+          tls: {},
+          connectionName: '10000',
         });
       },
       inject: [ConfigService],
