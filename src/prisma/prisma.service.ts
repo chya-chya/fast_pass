@@ -9,11 +9,13 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    const pool = new Pool({ 
+    console.log('🚀 DB Connection with SSL bypass starting...'); // 이 로그를 추가!
+    const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
-        rejectUnauthorized: false, // self-signed certificate 에러를 무시합니다.
+        rejectUnauthorized: false,
       },
+      max: Number(process.env.DB_POOL_SIZE) || 50,
     });
     const adapter = new PrismaPg(pool);
     super({ adapter });

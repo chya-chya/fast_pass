@@ -30,7 +30,8 @@ export class ReservationScheduler {
     try {
       // 한 번에 최대 50개씩 처리
       for (let i = 0; i < 50; i++) {
-        const processed = await this.reservationService.processNextReservation();
+        const processed =
+          await this.reservationService.processNextReservation();
         if (!processed) {
           break;
         }
