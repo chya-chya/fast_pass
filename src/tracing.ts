@@ -7,10 +7,13 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
+const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+const traceUrl = otelEndpoint.endsWith('/v1/traces') 
+  ? otelEndpoint 
+  : `${otelEndpoint}/v1/traces`;
+
 const exporterOptions = {
-  url:
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
-    'http://localhost:4318/v1/traces',
+  url: traceUrl,
 };
 
 const traceExporter = new OTLPTraceExporter(exporterOptions);
