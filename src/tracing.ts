@@ -18,11 +18,19 @@ const exporterOptions = {
 
 const traceExporter = new OTLPTraceExporter(exporterOptions);
 
+import {
+  ParentBasedSampler,
+  TraceIdRatioBasedSampler,
+} from '@opentelemetry/sdk-trace-base';
+
 const sdk = new NodeSDK({
   traceExporter,
   instrumentations: [getNodeAutoInstrumentations()],
   resource: resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'fast_pass',
+  }),
+  sampler: new ParentBasedSampler({
+    root: new TraceIdRatioBasedSampler(0.1),
   }),
 });
 
