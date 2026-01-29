@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${DOCKER_IMAGE_NAME}
+    image: sooyen/fast_pass:latest
     restart: always
     ports:
       - '3000:3000'
