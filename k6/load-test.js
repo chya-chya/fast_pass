@@ -4,9 +4,9 @@ import { randomString } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 export const options = {
   stages: [
-    { duration: '100s', target: 100 }, // Ramp-up
-    { duration: '100s', target: 100, rate: 1000 }, // Sustain
-    { duration: '100s', target: 0 },  // Ramp-down
+    { duration: '10s', target: 500 }, // Ramp-up
+    { duration: '100s', target: 500, rate: 500 }, // Sustain
+    { duration: '10s', target: 0 },  // Ramp-down
   ],
   thresholds: {
     http_req_duration: ['p(95)<200'], // 95% of requests < 200ms
@@ -14,7 +14,7 @@ export const options = {
   },
 };
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://43.200.4.132:3000';
 
 export function setup() {
   console.log('Running Setup...');
