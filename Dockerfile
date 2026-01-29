@@ -46,4 +46,4 @@ RUN apk del python3 make g++
 
 EXPOSE 3000
 
-CMD ["node", "dist/src/main.js"]
+CMD ["node", "-r", "./dist/src/tracing.js", "dist/src/main.js"]

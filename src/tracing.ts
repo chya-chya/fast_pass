@@ -20,9 +20,8 @@ const sdk = new NodeSDK({
   }),
 });
 
-export function startTracing() {
-  sdk.start();
-}
+// Export nothing, just start
+sdk.start();
 
 process.on('SIGTERM', () => {
   sdk
