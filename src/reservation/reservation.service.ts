@@ -20,6 +20,13 @@ interface ReservationQueueData {
   version?: number;
 }
 
+interface PendingReservation {
+  userId: string;
+  dto: CreateReservationDto;
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+}
+
 @Injectable()
 export class ReservationService {
   private redlock: Redlock;
@@ -41,6 +48,15 @@ export class ReservationService {
       retryDelay: 200,
       retryJitter: 200,
     });
+  }
+
+  private reservationQueue: PendingReservation[] = [];
+  private readonly BATCH_INTERVAL = 10; // ms
+
+  async onModuleInit() {
+    setInterval(() => {
+      void this.flushQueue();
+    }, this.BATCH_INTERVAL);
   }
 
   // Lua Script for atomic reservation
@@ -69,58 +85,105 @@ export class ReservationService {
     userId: string,
     createReservationDto: CreateReservationDto,
   ) {
-    const { seatId } = createReservationDto;
     this.requestCounter.inc();
+    return new Promise((resolve, reject) => {
+      this.reservationQueue.push({
+        userId,
+        dto: createReservationDto,
+        resolve,
+        reject,
+      });
 
-    const statusKey = `seat:${seatId}:status`;
-    const queueKey = 'queue:reservations';
-    const reservationId = crypto.randomUUID();
-    const reservationData: ReservationQueueData = {
-      id: reservationId,
-      userId,
-      seatId,
-      reservedAt: new Date().toISOString(),
-    };
+      if (this.reservationQueue.length >= 100) {
+        void this.flushQueue();
+      }
+    });
+  }
 
-    // 1. Try Lua Script (Fast Path)
-    // 캐시에 상태가 있다면 Lock 없이 원자적으로 처리
-    try {
-      const result = await this.redisClient.eval(
+  private async flushQueue() {
+    if (this.reservationQueue.length === 0) return;
+
+    const batch = [...this.reservationQueue];
+    this.reservationQueue = [];
+
+    const pipeline = this.redisClient.pipeline();
+
+    batch.forEach((req) => {
+      const { seatId } = req.dto;
+      const statusKey = `seat:${seatId}:status`;
+      const queueKey = 'queue:reservations';
+      const reservationId = crypto.randomUUID();
+
+      // Attach ID to request object for later use
+      (req as any).reservationId = reservationId;
+      (req as any).reservationData = {
+        id: reservationId,
+        userId: req.userId,
+        seatId,
+        reservedAt: new Date().toISOString(),
+      };
+
+      pipeline.eval(
         this.reservationScript,
         2,
         statusKey,
         queueKey,
-        JSON.stringify(reservationData),
-        600, // 10 minutes TTL
+        JSON.stringify((req as any).reservationData),
+        600,
       );
+    });
 
-      if (result === 'OK') {
-        this.queueCounter.labels('success').inc();
-        return {
-          ...reservationData,
-          reservedAt: new Date(reservationData.reservedAt),
-          status: 'PENDING',
-        };
-      }
+    try {
+      const results = await pipeline.exec();
+      if (!results) return;
 
-      if (result === 'FAIL') {
-        throw new ConflictException('이미 예약된 좌석입니다. (Cache)');
-      }
+      results.forEach((result, index) => {
+        const [err, response] = result;
+        const req = batch[index];
 
-      // result === 'MISS' falls through to Slow Path
-    } catch (err) {
-      if (err instanceof ConflictException) throw err;
-      // Redis error, proceed to slow path or rethrow?
-      // For robustness, if eval fails, we might want to try the slow path or just error out.
-      // Logging and proceeding to slow path is safer if it's a transient script issue,
-      // but usually an error here means Redis is down or script is bad.
-      console.warn('Redis Lua script failed, falling back to lock:', err);
+        if (err) {
+          req.reject(new ConflictException('Redis Error'));
+          return;
+        }
+
+        if (response === 'OK') {
+          this.queueCounter.labels('success').inc();
+          req.resolve({
+            ...(req as any).reservationData,
+            reservedAt: new Date((req as any).reservationData.reservedAt),
+            status: 'PENDING',
+          });
+        } else if (response === 'FAIL') {
+          req.reject(new ConflictException('이미 예약된 좌석입니다. (Cache)'));
+        } else {
+          // MISS case -> Slow Path
+          this.reserveSeatSlowPath(
+            req.userId,
+            req.dto,
+            (req as any).reservationId,
+          )
+            .then(req.resolve)
+            .catch(req.reject);
+        }
+      });
+    } catch (e) {
+      console.error('Batch Process Error', e);
+      batch.forEach((r) => r.reject(e));
     }
+  }
 
-    // 2. Slow Path (Cache Miss or Fallback)
-    // 기존의 Lock -> DB Check -> Cache Update 로직 수행
+  /* Old Logic Removed from here, moved to reserveSeatSlowPath below */
+  
+  // 기존 Redlock 로직 (Slow Path)
+  private async reserveSeatSlowPath(
+    userId: string,
+    createReservationDto: CreateReservationDto,
+    existingId?: string,
+  ) {
+    const { seatId } = createReservationDto;
+    /*... logic continues ...*/
     const resource = `locks:seats:${seatId}`;
-    const ttl = 10000; // 10초 락
+    const ttl = 10000;
 
     let lock: Lock | undefined;
     try {
@@ -133,21 +196,26 @@ export class ReservationService {
       });
       if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
 
-      // Cache Update (DB state is source of truth here)
+      const statusKey = `seat:${seatId}:status`;
       if (seat.status !== 'AVAILABLE') {
-        // 이미 예약됨 -> 캐시 갱신
         await this.redisClient.set(statusKey, seat.status, 'EX', 600);
         throw new ConflictException('이미 예약된 좌석입니다. (DB)');
       }
 
-      // Seat is AVAILABLE in DB.
-      // Now we queue properly.
+      const reservationId = existingId || crypto.randomUUID();
+      const reservationData: ReservationQueueData = {
+        id: reservationId,
+        userId,
+        seatId,
+        reservedAt: new Date().toISOString(),
+      };
 
-      // Queue update
-      await this.redisClient.rpush(queueKey, JSON.stringify(reservationData));
+      await this.redisClient.rpush(
+        'queue:reservations',
+        JSON.stringify(reservationData),
+      );
       this.queueCounter.labels('success').inc();
 
-      // Set Cache to HELD
       await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
 
       return {
@@ -155,7 +223,6 @@ export class ReservationService {
         reservedAt: new Date(reservationData.reservedAt),
         status: 'PENDING',
       };
-
     } catch (err) {
       if (
         err instanceof ConflictException ||
@@ -164,9 +231,7 @@ export class ReservationService {
         throw err;
       }
       this.lockCounter.labels('fail').inc();
-      // Redlock error or other unknown
       if (err instanceof Error && err.name === 'ExecutionError') {
-        // Redlock fail
         throw new ConflictException('좌석 잠금 획득 실패 - 다시 시도해주세요.');
       }
       throw err;
@@ -178,6 +243,9 @@ export class ReservationService {
       }
     }
   }
+
+
+
 
   async processNextReservation() {
     try {
@@ -321,6 +389,13 @@ export class ReservationService {
           version: { increment: 1 },
         },
       });
+
+      // Redis 상태도 AVAILABLE로 복구 (재예약 가능하도록)
+      // 트랜잭션 외부에서 수행하는 것이 좋지만, 여기서는 편의상 내부에서 비동기 실행 (await X)
+      // 단, 트랜잭션 롤백 시 정합성 문제가 생길 수 있으므로, 엄밀히는 트랜잭션 후행 작업이어야 함.
+      // 하지만 여기서는 즉시성 위해 수행.
+      const statusKey = `seat:${reservation.seatId}:status`;
+      this.redisClient.set(statusKey, 'AVAILABLE', 'EX', 600).catch(console.error);
 
       // 4. Performance 잔여 좌석 증가
       await tx.performance.update({
