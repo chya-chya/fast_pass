@@ -9,42 +9,22 @@ import Redis from 'ioredis';
     {
       provide: 'REDIS_CLIENT',
       useFactory: (configService: ConfigService) => {
-        const poolSize =
-          Number(configService.get<number>('REDIS_POOL_SIZE')) || 10;
-        const clients = Array.from({ length: poolSize }, () => {
-          return new Redis({
-            host: configService.get<string>('REDIS_HOST'),
-            port: configService.get<number>('REDIS_PORT'),
-            tls: {},
-            connectionName: 'fast-pass-app',
-            // ioredis options for robustness
-            maxRetriesPerRequest: null,
-          });
-        });
-
-        let index = 0;
-        // Proxy to round-robin requests
-        const proxy = new Proxy(
-          {},
-          {
-            get: (target, prop) => {
-              // Special handling for properties that might break if switched mid-stream
-              // But for simple command execution, this works well.
-              // We pick a client for THIS access
-              const client = clients[index++ % clients.length];
-
-              const value = client[prop as keyof Redis];
-
-              if (typeof value === 'function') {
-                return value.bind(client);
-              }
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-              return value;
-            },
+        // 10개의 객체를 직접 관리하는 대신, 하나의 고성능 클라이언트를 사용하거나
+        // 필요하다면 ioredis의 Cluster 모드나 내장 설정을 활용합니다.
+        return new Redis({
+          host: configService.get<string>('REDIS_HOST'),
+          port: configService.get<number>('REDIS_PORT'),
+          tls: {},
+          // 커넥션 유지 및 자동 재연결 설정
+          retryStrategy: (times) => Math.min(times * 50, 2000),
+          reconnectOnError: (err) => {
+            const targetError = 'READONLY';
+            if (err.message.includes(targetError)) return true;
+            return false;
           },
-        );
-
-        return proxy;
+          // 1,000명 동시 요청 시 파이프라이닝을 위해 큐 크기 조절
+          maxRetriesPerRequest: 3, // 무한 대기 방지 (지연 누적 차단)
+        });
       },
       inject: [ConfigService],
     },
