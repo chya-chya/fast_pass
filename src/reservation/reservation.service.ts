@@ -43,6 +43,28 @@ export class ReservationService {
     });
   }
 
+  // Lua Script for atomic reservation
+  // KEYS[1]: seat status key (e.g., "seat:1:status")
+  // KEYS[2]: reservation queue key (e.g., "queue:reservations")
+  // ARGV[1]: reservation data (JSON string)
+  // ARGV[2]: TTL for seat status (seconds)
+  // Returns:
+  // 'OK'   - Success
+  // 'FAIL' - Already reserved (in Cache)
+  // 'MISS' - Seat status not in cache (need DB check)
+  private readonly reservationScript = `
+    local status = redis.call('get', KEYS[1])
+    if status == false then
+      return 'MISS'
+    end
+    if status ~= 'AVAILABLE' then
+      return 'FAIL'
+    end
+    redis.call('rpush', KEYS[2], ARGV[1])
+    redis.call('set', KEYS[1], 'HELD', 'EX', ARGV[2])
+    return 'OK'
+  `;
+
   async reserveSeat(
     userId: string,
     createReservationDto: CreateReservationDto,
@@ -50,6 +72,53 @@ export class ReservationService {
     const { seatId } = createReservationDto;
     this.requestCounter.inc();
 
+    const statusKey = `seat:${seatId}:status`;
+    const queueKey = 'queue:reservations';
+    const reservationId = crypto.randomUUID();
+    const reservationData: ReservationQueueData = {
+      id: reservationId,
+      userId,
+      seatId,
+      reservedAt: new Date().toISOString(),
+    };
+
+    // 1. Try Lua Script (Fast Path)
+    // 캐시에 상태가 있다면 Lock 없이 원자적으로 처리
+    try {
+      const result = await this.redisClient.eval(
+        this.reservationScript,
+        2,
+        statusKey,
+        queueKey,
+        JSON.stringify(reservationData),
+        600, // 10 minutes TTL
+      );
+
+      if (result === 'OK') {
+        this.queueCounter.labels('success').inc();
+        return {
+          ...reservationData,
+          reservedAt: new Date(reservationData.reservedAt),
+          status: 'PENDING',
+        };
+      }
+
+      if (result === 'FAIL') {
+        throw new ConflictException('이미 예약된 좌석입니다. (Cache)');
+      }
+
+      // result === 'MISS' falls through to Slow Path
+    } catch (err) {
+      if (err instanceof ConflictException) throw err;
+      // Redis error, proceed to slow path or rethrow?
+      // For robustness, if eval fails, we might want to try the slow path or just error out.
+      // Logging and proceeding to slow path is safer if it's a transient script issue,
+      // but usually an error here means Redis is down or script is bad.
+      console.warn('Redis Lua script failed, falling back to lock:', err);
+    }
+
+    // 2. Slow Path (Cache Miss or Fallback)
+    // 기존의 Lock -> DB Check -> Cache Update 로직 수행
     const resource = `locks:seats:${seatId}`;
     const ttl = 10000; // 10초 락
 
@@ -57,61 +126,50 @@ export class ReservationService {
     try {
       lock = await this.redlock.acquire([resource], ttl);
       this.lockCounter.labels('success').inc();
-    } catch {
-      this.lockCounter.labels('fail').inc();
-      throw new ConflictException('이미 선택된 좌석입니다. (Lock)');
-    }
 
-    try {
-      // 1. Redis에서 좌석 상태 확인
-      const statusKey = `seat:${seatId}:status`;
-      const cachedStatus = await this.redisClient.get(statusKey);
+      // DB Check
+      const seat = await this.prisma.seat.findUnique({
+        where: { id: seatId },
+      });
+      if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
 
-      if (cachedStatus && cachedStatus !== 'AVAILABLE') {
-        throw new ConflictException('이미 예약된 좌석입니다. (Cache)');
+      // Cache Update (DB state is source of truth here)
+      if (seat.status !== 'AVAILABLE') {
+        // 이미 예약됨 -> 캐시 갱신
+        await this.redisClient.set(statusKey, seat.status, 'EX', 600);
+        throw new ConflictException('이미 예약된 좌석입니다. (DB)');
       }
 
-      // 2. 캐시에 없으면 DB 확인 (최초 1회 warm-up 겸용)
-      if (!cachedStatus) {
-        const seat = await this.prisma.seat.findUnique({
-          where: { id: seatId },
-        });
-        if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
-        if (seat.status !== 'AVAILABLE') {
-          // 상태가 정합하지 않으면 캐시 갱신 후 거절
-          // 이때도 버전이 맞는지 확인하는 것이 안전하지만, 단순 상태 동기화 목적이므로 덮어씀
-          await this.redisClient.set(statusKey, seat.status, 'EX', 600);
-          throw new ConflictException('이미 예약된 좌석입니다. (DB)');
-        }
-        // 예약 요청 데이터에 version 포함 (선택 사항이나 worker에 전달하면 더 안전)
-        // 여기서는 DB 직전 조회를 worker가 다시 하므로 생략 가능하나, 구조상 확장성 고려
-      }
+      // Seat is AVAILABLE in DB.
+      // Now we queue properly.
 
-      // 3. Redis Queue에 예약 요청 추가 (Write-Back)
-      const reservationId = crypto.randomUUID();
-      const reservationData: ReservationQueueData = {
-        id: reservationId,
-        userId,
-        seatId,
-        reservedAt: new Date().toISOString(),
-      };
-
-      // 트랜잭션 대신 Redis Pipeline 사용 가능하지만 여기선 순차 처리
-      await this.redisClient.rpush(
-        'queue:reservations',
-        JSON.stringify(reservationData),
-      );
+      // Queue update
+      await this.redisClient.rpush(queueKey, JSON.stringify(reservationData));
       this.queueCounter.labels('success').inc();
 
-      // 4. Redis 좌석 상태 'HELD'로 업데이트 (선점)
-      await this.redisClient.set(statusKey, 'HELD', 'EX', 600); // 10분 TTL
+      // Set Cache to HELD
+      await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
 
-      // 사용자에게는 성공 응답 즉시 반환
       return {
         ...reservationData,
         reservedAt: new Date(reservationData.reservedAt),
         status: 'PENDING',
       };
+
+    } catch (err) {
+      if (
+        err instanceof ConflictException ||
+        err instanceof NotFoundException
+      ) {
+        throw err;
+      }
+      this.lockCounter.labels('fail').inc();
+      // Redlock error or other unknown
+      if (err instanceof Error && err.name === 'ExecutionError') {
+        // Redlock fail
+        throw new ConflictException('좌석 잠금 획득 실패 - 다시 시도해주세요.');
+      }
+      throw err;
     } finally {
       if (lock) {
         await lock.release().catch((err) => {
