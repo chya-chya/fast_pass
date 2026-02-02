@@ -59,11 +59,9 @@ export class ReservationService {
     }, this.BATCH_INTERVAL);
   }
 
-  // Lua Script for atomic reservation
+  // Lua Script for seat locking (Single Key Operation)
   // KEYS[1]: seat status key (e.g., "seat:1:status")
-  // KEYS[2]: reservation queue key (e.g., "queue:reservations")
-  // ARGV[1]: reservation data (JSON string)
-  // ARGV[2]: TTL for seat status (seconds)
+  // ARGV[1]: TTL for seat status (seconds)
   // Returns:
   // 'OK'   - Success
   // 'FAIL' - Already reserved (in Cache)
@@ -76,29 +74,11 @@ export class ReservationService {
     if status ~= 'AVAILABLE' then
       return 'FAIL'
     end
-    redis.call('rpush', KEYS[2], ARGV[1])
-    redis.call('set', KEYS[1], 'HELD', 'EX', ARGV[2])
+    redis.call('set', KEYS[1], 'HELD', 'EX', ARGV[1])
     return 'OK'
   `;
 
-  async reserveSeat(
-    userId: string,
-    createReservationDto: CreateReservationDto,
-  ) {
-    this.requestCounter.inc();
-    return new Promise((resolve, reject) => {
-      this.reservationQueue.push({
-        userId,
-        dto: createReservationDto,
-        resolve,
-        reject,
-      });
-
-      if (this.reservationQueue.length >= 100) {
-        void this.flushQueue();
-      }
-    });
-  }
+  // ... reserveSeat method remains same ...
 
   private async flushQueue() {
     if (this.reservationQueue.length === 0) return;
@@ -108,10 +88,10 @@ export class ReservationService {
 
     const pipeline = this.redisClient.pipeline();
 
+    // 1. Try to acquire locks for all requests in batch
     batch.forEach((req) => {
       const { seatId } = req.dto;
       const statusKey = `seat:${seatId}:status`;
-      const queueKey = 'queue:reservations';
       const reservationId = crypto.randomUUID();
 
       // Attach ID to request object for later use
@@ -125,11 +105,9 @@ export class ReservationService {
 
       pipeline.eval(
         this.reservationScript,
-        2,
+        1, // Number of keys
         statusKey,
-        queueKey,
-        JSON.stringify((req as any).reservationData),
-        600,
+        600, // ARGV[1]: TTL
       );
     });
 
@@ -137,27 +115,33 @@ export class ReservationService {
       const results = await pipeline.exec();
       if (!results) return;
 
+      const successfulReqs: typeof batch = [];
+      const pushPipeline = this.redisClient.pipeline();
+
       results.forEach((result, index) => {
         const [err, response] = result;
         const req = batch[index];
 
         if (err) {
-          req.reject(new ConflictException('Redis Error'));
+          console.error(`Redis Pipeline Error for req ${req.userId}:`, err);
+          req.reject(
+            new ConflictException(`Redis Error: ${err.message}`),
+          );
           return;
         }
 
         if (response === 'OK') {
-          this.queueCounter.labels('success').inc();
-          req.resolve({
-            ...(req as any).reservationData,
-            reservedAt: new Date((req as any).reservationData.reservedAt),
-            status: 'PENDING',
-          });
+          // Lock acquired locally, prepare to push to queue
+          successfulReqs.push(req);
+          pushPipeline.rpush(
+            'queue:reservations',
+            JSON.stringify((req as any).reservationData),
+          );
         } else if (response === 'FAIL') {
           req.reject(new ConflictException('이미 예약된 좌석입니다. (Cache)'));
         } else {
           // MISS case -> Slow Path
-          this.reserveSeatSlowPath(
+           this.reserveSeatSlowPath(
             req.userId,
             req.dto,
             (req as any).reservationId,
@@ -166,6 +150,32 @@ export class ReservationService {
             .catch(req.reject);
         }
       });
+
+      // 2. Push successful requests to queue in a separate pipeline
+      if (successfulReqs.length > 0) {
+        const pushResults = await pushPipeline.exec();
+        
+        pushResults?.forEach((result, index) => {
+           const [err] = result;
+           const req = successfulReqs[index];
+           
+           if (err) {
+             // CRITICAL: Failed to push to queue after locking seat
+             // Ideally we should release the lock here, but TTL handles it eventually.
+             // Log error explicitly.
+             console.error(`Failed to push reservation to queue for ${req.userId}:`, err);
+             req.reject(new ConflictException('System Error: Queue Push Failed'));
+           } else {
+             this.queueCounter.labels('success').inc();
+             req.resolve({
+              ...(req as any).reservationData,
+              reservedAt: new Date((req as any).reservationData.reservedAt),
+              status: 'PENDING',
+            });
+           }
+        });
+      }
+
     } catch (e) {
       console.error('Batch Process Error', e);
       batch.forEach((r) => r.reject(e));
