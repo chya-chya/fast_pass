@@ -154,28 +154,32 @@ export class ReservationService {
       // 2. Push successful requests to queue in a separate pipeline
       if (successfulReqs.length > 0) {
         const pushResults = await pushPipeline.exec();
-        
+
         pushResults?.forEach((result, index) => {
-           const [err] = result;
-           const req = successfulReqs[index];
-           
-           if (err) {
-             // CRITICAL: Failed to push to queue after locking seat
-             // Ideally we should release the lock here, but TTL handles it eventually.
-             // Log error explicitly.
-             console.error(`Failed to push reservation to queue for ${req.userId}:`, err);
-             req.reject(new ConflictException('System Error: Queue Push Failed'));
-           } else {
-             this.queueCounter.labels('success').inc();
-             req.resolve({
+          const [err] = result;
+          const req = successfulReqs[index];
+
+          if (err) {
+            // CRITICAL: Failed to push to queue after locking seat
+            // Ideally we should release the lock here, but TTL handles it eventually.
+            // Log error explicitly.
+            console.error(
+              `Failed to push reservation to queue for ${req.userId}:`,
+              err,
+            );
+            req.reject(
+              new ConflictException('System Error: Queue Push Failed'),
+            );
+          } else {
+            this.queueCounter.labels('success').inc();
+            req.resolve({
               ...(req as any).reservationData,
               reservedAt: new Date((req as any).reservationData.reservedAt),
               status: 'PENDING',
             });
-           }
+          }
         });
       }
-
     } catch (e) {
       console.error('Batch Process Error', e);
       batch.forEach((r) => r.reject(e));
