@@ -58,6 +58,7 @@ services:
       - REDIS_PORT=6379
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - OTEL_SERVICE_NAME=fast_pass
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
 
     depends_on:
       db:
