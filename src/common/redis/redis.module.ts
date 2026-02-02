@@ -21,7 +21,6 @@ import Redis from 'ioredis';
             redisOptions: {
               tls: {}, // Assuming TLS is needed for ElastiCache
             },
-            scaleReads: 'slave',
           });
         }
 
