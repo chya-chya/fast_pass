@@ -78,7 +78,24 @@ export class ReservationService {
     return 'OK'
   `;
 
-  // ... reserveSeat method remains same ...
+  async reserveSeat(
+    userId: string,
+    createReservationDto: CreateReservationDto,
+  ) {
+    this.requestCounter.inc();
+    return new Promise((resolve, reject) => {
+      this.reservationQueue.push({
+        userId,
+        dto: createReservationDto,
+        resolve,
+        reject,
+      });
+
+      if (this.reservationQueue.length >= 100) {
+        void this.flushQueue();
+      }
+    });
+  }
 
   private async flushQueue() {
     if (this.reservationQueue.length === 0) return;
