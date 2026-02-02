@@ -16,10 +16,14 @@ import Redis from 'ioredis';
         const host = configService.get<string>('REDIS_HOST');
         const port = configService.get<number>('REDIS_PORT');
 
+        const useTls = configService.get<string>('REDIS_USE_TLS') === 'true';
+
         if (isCluster) {
           return new Redis.Cluster([{ host, port }], {
             redisOptions: {
-              tls: {}, // Assuming TLS is needed for ElastiCache
+              tls: useTls ? {} : undefined,
+              // AWS ElastiCache DNS fix: prevent ioredis from re-resolving IPs
+              dnsLookup: (address, callback) => callback(null, address),
             },
           });
         }
