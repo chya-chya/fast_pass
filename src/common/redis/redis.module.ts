@@ -13,18 +13,21 @@ import Redis from 'ioredis';
         // 필요하다면 ioredis의 Cluster 모드나 내장 설정을 활용합니다.
         const isCluster =
           configService.get<string>('REDIS_CLUSTER_MODE') === 'true';
-        const host = configService.get<string>('REDIS_HOST');
-        const port = configService.get<number>('REDIS_PORT');
+        const useTls = configService.get<string>('REDIS_USE_TLS') !== 'false'; // Default to true if not specified
 
-        const useTls = configService.get<string>('REDIS_USE_TLS') === 'true';
+        console.log(`[RedisModule] Connecting to Cluster ${host}:${port}, TLS: ${useTls}`);
 
         if (isCluster) {
           return new Redis.Cluster([{ host, port }], {
             redisOptions: {
-              tls: useTls ? {} : undefined,
+              tls: useTls
+                ? {
+                    checkServerIdentity: () => undefined, // Bypass hostname verification for AWS ElastiCache
+                  }
+                : undefined,
               // AWS ElastiCache DNS fix: prevent ioredis from re-resolving IPs
               dnsLookup: (address, callback) => callback(null, address),
-            },
+            } as any, // Cast to any to avoid type definition issues with dnsLookup in redisOptions
           });
         }
 
