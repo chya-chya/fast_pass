@@ -25,7 +25,7 @@ services:
     image: grafana/grafana:latest
     restart: always
     ports:
-      - '3000:3000' # Mapped to host 3000 (standard grafana port)
+      - '3001:3000' # Mapped to host 3001 (standard grafana port)
     environment:
       - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
