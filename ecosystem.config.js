@@ -20,9 +20,7 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
-      env: {
-        PM2_PROMETHEUS_EXPORTER_PORT: 9615,
-      },
+      env: {},
     },
   ],
 };
