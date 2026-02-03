@@ -8,5 +8,6 @@ scrape_configs:
       - targets: ['${APP_TARGET}']
 
   - job_name: 'pm2-metrics'
+    fallback_scrape_protocol: PrometheusText0.0.4
     static_configs:
       - targets: ['${PM2_METRICS_TARGET}']
