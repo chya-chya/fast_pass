@@ -15,9 +15,12 @@ services:
     ports:
       - '9090:9090'
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
+      - ./prometheus.yml.template:/etc/prometheus/prometheus.yml.template
+      - ./monitoring-entrypoint.sh:/bin/monitoring-entrypoint.sh
+    environment:
+      - APP_TARGET=${APP_TARGET:-app:3000}
+      - PM2_METRICS_TARGET=${PM2_METRICS_TARGET:-app:9615}
+    entrypoint: ["/bin/sh", "/bin/monitoring-entrypoint.sh"]
   grafana:
     image: grafana/grafana:latest
     restart: always
