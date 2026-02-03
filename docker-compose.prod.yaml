@@ -2,6 +2,8 @@ services:
   app:
     image: sooyen/fast_pass:latest
     restart: always
+    ports:
+      - '9615:9615'
     # deploy:
     #   replicas: 1
     environment:
