@@ -18,6 +18,7 @@ module.exports = {
       name: 'pm2-prometheus-exporter',
       script: 'pm2-prometheus-exporter',
       instances: 1,
+      exec_mode: 'fork',
       autorestart: true,
       env: {
         PM2_PROMETHEUS_EXPORTER_PORT: 9615,
