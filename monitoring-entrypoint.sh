@@ -2,7 +2,7 @@
 
 # Default values if not set
 : "${APP_TARGET:=app:3000}"
-: "${PM2_METRICS_TARGET:=app:9615}"
+: "${PM2_METRICS_TARGET:=app:9209}"
 
 echo "Generating prometheus.yml from template..."
 echo "APP_TARGET: $APP_TARGET"
