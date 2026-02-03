@@ -6,6 +6,7 @@ import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import 'dotenv/config';
 import {
+  BatchSpanProcessor,
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
@@ -23,9 +24,17 @@ if (process.env.ENABLE_TRACING === 'true') {
   };
 
   const traceExporter = new OTLPTraceExporter(exporterOptions);
+  
+  // Use BatchSpanProcessor with custom configuration for Free Tier optimization
+  const spanProcessor = new BatchSpanProcessor(traceExporter, {
+    // Increase delay to 10 seconds to reduce CPU/Network overhead (Default: 5000ms)
+    scheduledDelayMillis: 10000,
+    // Keep default batch size (512) or adjust if memory is critical
+    maxExportBatchSize: 512,
+  });
 
   const sdk = new NodeSDK({
-    traceExporter,
+    spanProcessor,
     instrumentations: [getNodeAutoInstrumentations()],
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'fast_pass',
