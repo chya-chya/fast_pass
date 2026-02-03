@@ -34,8 +34,8 @@ services:
     restart: always
     ports:
       - '3000:80'
+      - '9615:9615' # PM2 Prometheus Exporter
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - app
-

@@ -45,7 +45,7 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 RUN apk del python3 make g++
 
 # Install PM2 globally
-RUN npm install pm2 -g
+RUN npm install pm2 pm2-prometheus-exporter -g
 
 # Copy PM2 config
 COPY ecosystem.config.js .

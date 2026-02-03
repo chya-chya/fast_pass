@@ -14,5 +14,14 @@ module.exports = {
       // Pass CLI args to script so NestJS + Tracing works
       node_args: '-r ./dist/src/tracing.js', 
     },
+    {
+      name: 'pm2-prometheus-exporter',
+      script: 'pm2-prometheus-exporter',
+      instances: 1,
+      autorestart: true,
+      env: {
+        PM2_PROMETHEUS_EXPORTER_PORT: 9615,
+      },
+    },
   ],
 };

@@ -5,4 +5,8 @@ scrape_configs:
   - job_name: 'nestjs-app'
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['app:3000']
+      - targets: ['${APP_TARGET}']
+
+  - job_name: 'pm2-metrics'
+    static_configs:
+      - targets: ['${PM2_METRICS_TARGET}']
