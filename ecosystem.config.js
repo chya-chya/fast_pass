@@ -16,7 +16,7 @@ module.exports = {
     },
     {
       name: 'pm2-prometheus-exporter',
-      script: 'pm2-prometheus-exporter',
+      script: '/usr/local/bin/pm2-prometheus-exporter',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
