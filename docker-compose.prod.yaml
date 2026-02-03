@@ -3,7 +3,7 @@ services:
     image: sooyen/fast_pass:latest
     restart: always
     deploy:
-      replicas: 1
+      replicas: 2
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
