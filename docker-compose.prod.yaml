@@ -2,8 +2,8 @@ services:
   app:
     image: sooyen/fast_pass:latest
     restart: always
-    deploy:
-      replicas: 4
+    # deploy:
+    #   replicas: 1
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}

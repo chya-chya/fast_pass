@@ -12,6 +12,7 @@ export const options = {
     http_req_duration: ['p(95)<200'], // 95% of requests < 200ms
     checks: ['rate>0.99'], // All checks (status 201 or 409) must pass
   },
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)'],
 };
 
 const BASE_URL = 'http://54.180.24.151:3000';

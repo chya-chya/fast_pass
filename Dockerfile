@@ -44,6 +44,12 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 # Remove build dependencies to keep image light
 RUN apk del python3 make g++
 
+# Install PM2 globally
+RUN npm install pm2 -g
+
+# Copy PM2 config
+COPY ecosystem.config.js .
+
 EXPOSE 3000
 
-CMD ["node", "-r", "./dist/src/tracing.js", "dist/src/main.js"]
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]
