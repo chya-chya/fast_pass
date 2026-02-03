@@ -14,6 +14,8 @@ import Redis from 'ioredis';
         const isCluster =
           configService.get<string>('REDIS_CLUSTER_MODE') === 'true';
         const useTls = configService.get<string>('REDIS_USE_TLS') !== 'false'; // Default to true if not specified
+        const host = configService.get<string>('REDIS_HOST');
+        const port = configService.get<number>('REDIS_PORT');
 
         console.log(`[RedisModule] Connecting to Cluster ${host}:${port}, TLS: ${useTls}`);
 
