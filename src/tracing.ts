@@ -40,7 +40,9 @@ if (process.env.ENABLE_TRACING === 'true') {
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'fast_pass',
     }),
     sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(0.1),
+      root: new TraceIdRatioBasedSampler(
+        Number(process.env.OTEL_TRACE_SAMPLING_RATE) || 0.01,
+      ),
     }),
   });
 
