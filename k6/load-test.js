@@ -4,8 +4,8 @@ import { randomString } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 export const options = {
   stages: [
-    { duration: '10s', target: 500 }, // Ramp-up
-    { duration: '100s', target: 500, rate: 500 }, // Sustain
+    { duration: '10s', target: 1000 }, // Ramp-up
+    { duration: '100s', target: 1000, rate: 1000 }, // Sustain
     { duration: '10s', target: 0 },  // Ramp-down
   ],
   thresholds: {
@@ -15,7 +15,7 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)'],
 };
 
-const BASE_URL = 'http://54.180.24.151:3000';
+const BASE_URL = 'http://fast-pass-apl-1011026839.ap-northeast-2.elb.amazonaws.com';
 
 export function setup() {
   console.log('Running Setup...');

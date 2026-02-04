@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'fast_pass',
       script: 'dist/src/main.js',
-      instances: 4, // 4 processes
+      instances: 'max', // Use all available CPU cores
       exec_mode: 'cluster', // Enable load balancing
       autorestart: true,
       watch: false,

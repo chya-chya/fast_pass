@@ -7,8 +7,7 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import 'dotenv/config';
 import {
   BatchSpanProcessor,
-  ParentBasedSampler,
-  TraceIdRatioBasedSampler,
+  SpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 
 if (process.env.ENABLE_TRACING === 'true') {
@@ -26,24 +25,44 @@ if (process.env.ENABLE_TRACING === 'true') {
   const traceExporter = new OTLPTraceExporter(exporterOptions);
   
   // Use BatchSpanProcessor with custom configuration for Free Tier optimization
-  const spanProcessor = new BatchSpanProcessor(traceExporter, {
+  const batchSpanProcessor = new BatchSpanProcessor(traceExporter, {
     // Increase delay to 10 seconds to reduce CPU/Network overhead (Default: 5000ms)
     scheduledDelayMillis: 10000,
     // Keep default batch size (512) or adjust if memory is critical
     maxExportBatchSize: 512,
   });
 
+  // Custom SpanProcessor to filter spans with duration < 1s
+  class DurationFilterSpanProcessor implements SpanProcessor {
+    constructor(private readonly processor: SpanProcessor) {}
+
+    onStart(span: any, context: any) {
+      this.processor.onStart(span, context);
+    }
+
+    onEnd(span: any) {
+      // span.duration is [seconds, nanoseconds]
+      if (span.duration && span.duration[0] >= 1) {
+        this.processor.onEnd(span);
+      }
+    }
+
+    async shutdown() {
+      return this.processor.shutdown();
+    }
+
+    async forceFlush() {
+      return this.processor.forceFlush();
+    }
+  }
+
   const sdk = new NodeSDK({
-    spanProcessor,
+    spanProcessor: new DurationFilterSpanProcessor(batchSpanProcessor),
     instrumentations: [getNodeAutoInstrumentations()],
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'fast_pass',
     }),
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(
-        Number(process.env.OTEL_TRACE_SAMPLING_RATE) || 0.01,
-      ),
-    }),
+    // Sampler removed implies AlwaysOnSampler (100%), but we filter at SpanProcessor
   });
 
   // Export nothing, just start
