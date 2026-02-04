@@ -25,6 +25,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
+  console.log('Deploy Test: CI/CD Pipeline triggered');
   await app.listen(process.env.PORT ?? 3000);
 }
 void bootstrap();
