@@ -29,7 +29,7 @@ services:
       - MONGO_URI=${MONGO_URI}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://${MONITORING_HOST:-localhost}:4318
       - OTEL_SERVICE_NAME=fast_pass
-      - ENABLE_TRACING=true
+      - ENABLE_TRACING=${ENABLE_TRACING}
 
   nginx:
     image: nginx:latest
