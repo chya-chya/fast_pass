@@ -5,6 +5,7 @@ import { ReservationService } from './reservation.service';
 @Injectable()
 export class ReservationScheduler {
   private readonly logger = new Logger(ReservationScheduler.name);
+  private isProcessing = false;
 
   constructor(private readonly reservationService: ReservationService) {}
 
@@ -27,6 +28,11 @@ export class ReservationScheduler {
 
   @Interval(100)
   async handleReservationQueue() {
+    if (this.isProcessing) {
+      return;
+    }
+    this.isProcessing = true;
+
     try {
       // 한 번에 최대 50개씩 처리
       for (let i = 0; i < 50; i++) {
@@ -38,6 +44,18 @@ export class ReservationScheduler {
       }
     } catch (error) {
       this.logger.error('Failed to handle reservation queue', error);
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  // 5초마다 잔여 좌석 수 동기화 (Eventual Consistency)
+  @Interval(5000)
+  async handleSeatSync() {
+    try {
+      await this.reservationService.syncAvailableSeats();
+    } catch (error) {
+      this.logger.error('Failed to sync available seats', error);
     }
   }
 }

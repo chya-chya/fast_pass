@@ -53,7 +53,7 @@ export class ReservationService {
   private reservationQueue: PendingReservation[] = [];
   private readonly BATCH_INTERVAL = 10; // ms
 
-  async onModuleInit() {
+  onModuleInit() {
     setInterval(() => {
       void this.flushQueue();
     }, this.BATCH_INTERVAL);
@@ -97,6 +97,7 @@ export class ReservationService {
     });
   }
 
+  // 배치 처리
   private async flushQueue() {
     if (this.reservationQueue.length === 0) return;
 
@@ -141,9 +142,7 @@ export class ReservationService {
 
         if (err) {
           console.error(`Redis Pipeline Error for req ${req.userId}:`, err);
-          req.reject(
-            new ConflictException(`Redis Error: ${err.message}`),
-          );
+          req.reject(new ConflictException(`Redis Error: ${err.message}`));
           return;
         }
 
@@ -204,7 +203,6 @@ export class ReservationService {
   }
 
   /* Old Logic Removed from here, moved to reserveSeatSlowPath below */
-  
   // 기존 Redlock 로직 (Slow Path)
   private async reserveSeatSlowPath(
     userId: string,
@@ -275,9 +273,6 @@ export class ReservationService {
     }
   }
 
-
-
-
   async processNextReservation() {
     try {
       const rawData = await this.redisClient.lpop('queue:reservations');
@@ -329,12 +324,8 @@ export class ReservationService {
           },
         });
 
-        // 잔여 좌석 감소
-
-        await tx.performance.update({
-          where: { id: seat.performanceId },
-          data: { availableSeats: { decrement: 1 } },
-        });
+        // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
+        // 별도 스케줄러가 주기적으로 동기화함
       });
 
       console.log(`Processed reservation ${id} for seat ${seatId}`);
@@ -428,11 +419,8 @@ export class ReservationService {
       const statusKey = `seat:${reservation.seatId}:status`;
       this.redisClient.set(statusKey, 'AVAILABLE', 'EX', 600).catch(console.error);
 
-      // 4. Performance 잔여 좌석 증가
-      await tx.performance.update({
-        where: { id: reservation.seat.performanceId },
-        data: { availableSeats: { increment: 1 } },
-      });
+      // Performance 잔여 좌석 증가 로직 제거 (Performance 테이블 락 방지)
+      // 별도 스케줄러가 주기적으로 동기화함
 
       return updatedReservation;
     });
@@ -461,5 +449,36 @@ export class ReservationService {
     }
 
     return count;
+  }
+
+  // 주기적으로 실행될 잔여 좌석 동기화 로직
+  // Performance 테이블의 availableSeats를 실제 Seat 테이블의 status를 기반으로 갱신
+  async syncAvailableSeats() {
+    // 1. 모든 Performance ID 조회 (혹은 활성 Performance만 조회)
+    // 여기서는 간단하게 count 집계가 필요한 Performance들을 찾습니다.
+    // groupBy로 성능 최적화: PerformanceId별 AVAILABLE 좌석 수 집계
+    const seatCounts = await this.prisma.seat.groupBy({
+      by: ['performanceId'],
+      where: {
+        status: 'AVAILABLE',
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    // 2. Performance 테이블 업데이트
+    const results = await Promise.allSettled(
+      seatCounts.map((group) =>
+        this.prisma.performance.update({
+          where: { id: group.performanceId },
+          data: { availableSeats: group._count.id },
+        }),
+      ),
+    );
+
+    const updatedCount = results.filter((r) => r.status === 'fulfilled').length;
+
+    return updatedCount;
   }
 }
