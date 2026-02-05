@@ -17,7 +17,7 @@ export class PrismaService
       },
       max: Number(process.env.DB_POOL_SIZE) || 10,
       idleTimeoutMillis: 30000, // 연결이 30초 동안 유휴 상태여야 닫힘 (기본값 10초는 너무 짧아서 재연결 오버헤드 발생)
-      connectionTimeoutMillis: 2000, // 연결 시도 2초 초과 시 타임아웃
+      connectionTimeoutMillis: 5000, // 연결 시도 5초 초과 시 타임아웃
     });
     const adapter = new PrismaPg(pool);
     super({ adapter });
