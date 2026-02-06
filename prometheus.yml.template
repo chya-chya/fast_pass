@@ -29,7 +29,7 @@ scrape_configs:
         action: keep
       # Change target to <private_ip>:9615
       - source_labels: [__meta_ec2_private_ip]
-        replacement: '${1}:9615'
+        replacement: '${1}:9209'
         target_label: __address__
       - source_labels: [__meta_ec2_instance_id]
         target_label: instance

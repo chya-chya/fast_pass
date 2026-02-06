@@ -3,7 +3,7 @@ services:
     image: sooyen/fast_pass:latest
     restart: always
     ports:
-      - '9615:9615'
+      - '9209:9209'
     # deploy:
     #   replicas: 1
     environment:
@@ -31,8 +31,8 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://${MONITORING_HOST:-localhost}:4318
       - OTEL_SERVICE_NAME=fast_pass
       - ENABLE_TRACING=${ENABLE_TRACING}
-      - METRICS_PORT=9615
-      - PM2_PROMETHEUS_EXPORTER_PORT=9615
+      - METRICS_PORT=9209
+      - PM2_PROMETHEUS_EXPORTER_PORT=9209
     volumes:
       - ./ecosystem.config.js:/app/ecosystem.config.js
 

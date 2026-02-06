@@ -21,8 +21,8 @@ module.exports = {
       exec_mode: 'fork',
       autorestart: true,
       env: {
-        METRICS_PORT: 9615,
-        PM2_PROMETHEUS_EXPORTER_PORT: 9615,
+        METRICS_PORT: 9209,
+        PM2_PROMETHEUS_EXPORTER_PORT: 9209,
       },
     },
   ],
