@@ -44,15 +44,15 @@ import { ScheduleModule } from '@nestjs/schedule';
             }),
           ),
         }),
-        new winston.transports.MongoDB({
-          level: 'info',
-          db: process.env.MONGO_URI || 'mongodb://mongo:27017/fast_pass_logs',
-          collection: 'logs',
-          format: winston.format.combine(
-            winston.format.timestamp(),
-            winston.format.json(),
-          ),
-        }),
+        // new winston.transports.MongoDB({
+        //   level: 'info',
+        //   db: process.env.MONGO_URI || 'mongodb://mongo:27017/fast_pass_logs',
+        //   collection: 'logs',
+        //   format: winston.format.combine(
+        //     winston.format.timestamp(),
+        //     winston.format.json(),
+        //   ),
+        // }),
       ],
     }),
     SeatModule,
