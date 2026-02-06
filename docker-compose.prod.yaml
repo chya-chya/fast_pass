@@ -31,6 +31,9 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://${MONITORING_HOST:-localhost}:4318
       - OTEL_SERVICE_NAME=fast_pass
       - ENABLE_TRACING=${ENABLE_TRACING}
+      - METRICS_PORT=9615
+    volumes:
+      - ./ecosystem.config.js:/app/ecosystem.config.js
 
   nginx:
     image: nginx:latest
