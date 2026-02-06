@@ -3,7 +3,7 @@ services:
     image: sooyen/fast_pass:latest
     restart: always
     ports:
-      - '9209:9209'
+      - '9615:9615'
     # deploy:
     #   replicas: 1
     environment:
