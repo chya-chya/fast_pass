@@ -32,6 +32,7 @@ services:
       - OTEL_SERVICE_NAME=fast_pass
       - ENABLE_TRACING=${ENABLE_TRACING}
       - METRICS_PORT=9615
+      - PM2_PROMETHEUS_EXPORTER_PORT=9615
     volumes:
       - ./ecosystem.config.js:/app/ecosystem.config.js
 

@@ -22,6 +22,7 @@ module.exports = {
       autorestart: true,
       env: {
         METRICS_PORT: 9615,
+        PM2_PROMETHEUS_EXPORTER_PORT: 9615,
       },
     },
   ],
