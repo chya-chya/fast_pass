@@ -20,7 +20,9 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
-      env: {},
+      env: {
+        METRICS_PORT: 9615,
+      },
     },
   ],
 };
