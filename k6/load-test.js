@@ -77,6 +77,12 @@ export function setup() {
   
   check(seatsRes, { 'Seats Retrieved': (r) => r.status === 200 });
   const seats = seatsRes.json();
+  
+  if (!Array.isArray(seats)) {
+    console.error(`Expected array but got: ${seatsRes.body}`);
+    throw new Error('Seats response is not an array');
+  }
+  
   const seatIds = seats.map(s => s.id);
 
   console.log(`Setup Complete: Event ${eventId}, Perf ${performanceId}, Seats ${seatIds.length}`);

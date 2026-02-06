@@ -2,12 +2,34 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'nestjs-app'
+  - job_name: 'ec2-nestjs-app'
     metrics_path: '/metrics'
-    static_configs:
-      - targets: ['${APP_TARGET}']
+    ec2_sd_configs:
+      - region: ${AWS_REGION}
+    relabel_configs:
+      # Only monitor instances with tag "Monitoring: true"
+      - source_labels: [__meta_ec2_tag_Monitoring]
+        regex: 'true'
+        action: keep
+      # Change target to <private_ip>:3000
+      - source_labels: [__meta_ec2_private_ip]
+        replacement: '${1}:3000'
+        target_label: __address__
+      # Add instance ID as a label
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance
 
-  - job_name: 'pm2-metrics'
+  - job_name: 'ec2-pm2-metrics'
     fallback_scrape_protocol: PrometheusText0.0.4
-    static_configs:
-      - targets: ['${PM2_METRICS_TARGET}']
+    ec2_sd_configs:
+      - region: ${AWS_REGION}
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Monitoring]
+        regex: 'true'
+        action: keep
+      # Change target to <private_ip>:9615
+      - source_labels: [__meta_ec2_private_ip]
+        replacement: '${1}:9615'
+        target_label: __address__
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance

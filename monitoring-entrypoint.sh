@@ -2,14 +2,12 @@
 
 # Default values if not set
 : "${APP_TARGET:=app:3000}"
-: "${PM2_METRICS_TARGET:=app:9209}"
+: "${PM2_METRICS_TARGET:=app:9615}"
 
 echo "Generating prometheus.yml from template..."
-echo "APP_TARGET: $APP_TARGET"
-echo "PM2_METRICS_TARGET: $PM2_METRICS_TARGET"
+echo "AWS_REGION: ${AWS_REGION:-ap-northeast-2}"
 
-sed -e "s|\${APP_TARGET}|$APP_TARGET|g" \
-    -e "s|\${PM2_METRICS_TARGET}|$PM2_METRICS_TARGET|g" \
+sed -e "s|\${AWS_REGION}|${AWS_REGION:-ap-northeast-2}|g" \
     /etc/prometheus/prometheus.yml.template > /etc/prometheus/prometheus.yml
 
 echo "Configuration generated:"
