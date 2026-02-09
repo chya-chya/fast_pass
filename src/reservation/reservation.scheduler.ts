@@ -50,12 +50,12 @@ export class ReservationScheduler {
   }
 
   // 5초마다 잔여 좌석 수 동기화 (Eventual Consistency)
-  @Interval(5000)
-  async handleSeatSync() {
-    try {
-      await this.reservationService.syncAvailableSeats();
-    } catch (error) {
-      this.logger.error('Failed to sync available seats', error);
-    }
-  }
+  // @Interval(5000)
+  // async handleSeatSync() {
+  //   try {
+  //     await this.reservationService.syncAvailableSeats();
+  //   } catch (error) {
+  //     this.logger.error('Failed to sync available seats', error);
+  //   }
+  // }
 }
