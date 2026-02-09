@@ -8,7 +8,10 @@ import 'dotenv/config';
 import {
   BatchSpanProcessor,
   SpanProcessor,
+  ReadableSpan,
+  Span,
 } from '@opentelemetry/sdk-trace-base';
+import { Context } from '@opentelemetry/api';
 
 if (process.env.ENABLE_TRACING === 'true') {
   diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
@@ -24,30 +27,32 @@ if (process.env.ENABLE_TRACING === 'true') {
 
   const traceExporter = new OTLPTraceExporter(exporterOptions);
   
-  // Use BatchSpanProcessor with custom configuration for Free Tier optimization
+  // Use BatchSpanProcessor with custom configuration for high-load optimization
   const batchSpanProcessor = new BatchSpanProcessor(traceExporter, {
-    // Increase delay to 5 seconds to reduce CPU/Network overhead (Reduced from 10s for better responsiveness)
-    scheduledDelayMillis: 5000,
-    // Keep default batch size (512) or adjust if memory is critical
-    maxExportBatchSize: 512,
+    // Reduce delay to 1 second for more frequent exports under high load
+    scheduledDelayMillis: 1000,
+    // Increase batch size for higher throughput
+    maxExportBatchSize: 1024,
+    // Significantly increase queue size to prevent dropping spans during bursts (default: 2048)
+    maxQueueSize: 10000,
   });
 
   // Custom SpanProcessor to filter spans with duration < 1s
   class DurationFilterSpanProcessor implements SpanProcessor {
     constructor(private readonly processor: SpanProcessor) {}
 
-    onStart(span: any, context: any) {
+    onStart(span: Span, context: Context) {
       this.processor.onStart(span, context);
     }
 
-    onEnd(span: any) {
+    onEnd(span: ReadableSpan) {
       // span.duration is [seconds, nanoseconds]
       if (span.duration) {
         const [seconds, nanoseconds] = span.duration;
-        const durationMb = seconds * 1000 + nanoseconds / 1000000;
+        const durationMs = seconds * 1000 + nanoseconds / 1000000;
 
         // Save spans with duration >= 1000ms (1s)
-        if (durationMb >= 1000) {
+        if (durationMs >= 1000) {
           this.processor.onEnd(span);
         }
       }
