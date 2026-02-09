@@ -20,13 +20,6 @@ interface ReservationQueueData {
   version?: number;
 }
 
-interface PendingReservation {
-  userId: string;
-  dto: CreateReservationDto;
-  resolve: (value: any) => void;
-  reject: (reason?: any) => void;
-}
-
 @Injectable()
 export class ReservationService {
   private redlock: Redlock;
@@ -50,188 +43,52 @@ export class ReservationService {
     });
   }
 
-  private reservationQueue: PendingReservation[] = [];
-  private readonly BATCH_INTERVAL = 10; // ms
-
-  onModuleInit() {
-    setInterval(() => {
-      void this.flushQueue();
-    }, this.BATCH_INTERVAL);
-  }
-
-  // Lua Script for seat locking (Single Key Operation)
-  // KEYS[1]: seat status key (e.g., "seat:1:status")
-  // ARGV[1]: TTL for seat status (seconds)
-  // Returns:
-  // 'OK'   - Success
-  // 'FAIL' - Already reserved (in Cache)
-  // 'MISS' - Seat status not in cache (need DB check)
-  private readonly reservationScript = `
-    local status = redis.call('get', KEYS[1])
-    if status == false then
-      return 'MISS'
-    end
-    if status ~= 'AVAILABLE' then
-      return 'FAIL'
-    end
-    redis.call('set', KEYS[1], 'HELD', 'EX', ARGV[1])
-    return 'OK'
-  `;
-
   async reserveSeat(
     userId: string,
     createReservationDto: CreateReservationDto,
   ) {
-    this.requestCounter.inc();
-    return new Promise((resolve, reject) => {
-      this.reservationQueue.push({
-        userId,
-        dto: createReservationDto,
-        resolve,
-        reject,
-      });
-
-      if (this.reservationQueue.length >= 100) {
-        void this.flushQueue();
-      }
-    });
-  }
-
-  // 배치 처리
-  private async flushQueue() {
-    if (this.reservationQueue.length === 0) return;
-
-    const batch = [...this.reservationQueue];
-    this.reservationQueue = [];
-
-    const pipeline = this.redisClient.pipeline();
-
-    // 1. Try to acquire locks for all requests in batch
-    batch.forEach((req) => {
-      const { seatId } = req.dto;
-      const statusKey = `seat:${seatId}:status`;
-      const reservationId = crypto.randomUUID();
-
-      // Attach ID to request object for later use
-      (req as any).reservationId = reservationId;
-      (req as any).reservationData = {
-        id: reservationId,
-        userId: req.userId,
-        seatId,
-        reservedAt: new Date().toISOString(),
-      };
-
-      pipeline.eval(
-        this.reservationScript,
-        1, // Number of keys
-        statusKey,
-        600, // ARGV[1]: TTL
-      );
-    });
-
-    try {
-      const results = await pipeline.exec();
-      if (!results) return;
-
-      const successfulReqs: typeof batch = [];
-      const pushPipeline = this.redisClient.pipeline();
-
-      results.forEach((result, index) => {
-        const [err, response] = result;
-        const req = batch[index];
-
-        if (err) {
-          console.error(`Redis Pipeline Error for req ${req.userId}:`, err);
-          req.reject(new ConflictException(`Redis Error: ${err.message}`));
-          return;
-        }
-
-        if (response === 'OK') {
-          // Lock acquired locally, prepare to push to queue
-          successfulReqs.push(req);
-          pushPipeline.rpush(
-            'queue:reservations',
-            JSON.stringify((req as any).reservationData),
-          );
-        } else if (response === 'FAIL') {
-          req.reject(new ConflictException('이미 예약된 좌석입니다. (Cache)'));
-        } else {
-          // MISS case -> Slow Path
-           this.reserveSeatSlowPath(
-            req.userId,
-            req.dto,
-            (req as any).reservationId,
-          )
-            .then(req.resolve)
-            .catch(req.reject);
-        }
-      });
-
-      // 2. Push successful requests to queue in a separate pipeline
-      if (successfulReqs.length > 0) {
-        const pushResults = await pushPipeline.exec();
-
-        pushResults?.forEach((result, index) => {
-          const [err] = result;
-          const req = successfulReqs[index];
-
-          if (err) {
-            // CRITICAL: Failed to push to queue after locking seat
-            // Ideally we should release the lock here, but TTL handles it eventually.
-            // Log error explicitly.
-            console.error(
-              `Failed to push reservation to queue for ${req.userId}:`,
-              err,
-            );
-            req.reject(
-              new ConflictException('System Error: Queue Push Failed'),
-            );
-          } else {
-            this.queueCounter.labels('success').inc();
-            req.resolve({
-              ...(req as any).reservationData,
-              reservedAt: new Date((req as any).reservationData.reservedAt),
-              status: 'PENDING',
-            });
-          }
-        });
-      }
-    } catch (e) {
-      console.error('Batch Process Error', e);
-      batch.forEach((r) => r.reject(e));
-    }
-  }
-
-  /* Old Logic Removed from here, moved to reserveSeatSlowPath below */
-  // 기존 Redlock 로직 (Slow Path)
-  private async reserveSeatSlowPath(
-    userId: string,
-    createReservationDto: CreateReservationDto,
-    existingId?: string,
-  ) {
     const { seatId } = createReservationDto;
-    /*... logic continues ...*/
+    this.requestCounter.inc();
+
     const resource = `locks:seats:${seatId}`;
-    const ttl = 10000;
+    const ttl = 10000; // 10초 락
 
     let lock: Lock | undefined;
     try {
       lock = await this.redlock.acquire([resource], ttl);
       this.lockCounter.labels('success').inc();
+    } catch {
+      this.lockCounter.labels('fail').inc();
+      throw new ConflictException('이미 선택된 좌석입니다. (Lock)');
+    }
 
-      // DB Check
-      const seat = await this.prisma.seat.findUnique({
-        where: { id: seatId },
-      });
-      if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
-
+    try {
+      // 1. Redis에서 좌석 상태 확인
       const statusKey = `seat:${seatId}:status`;
-      if (seat.status !== 'AVAILABLE') {
-        await this.redisClient.set(statusKey, seat.status, 'EX', 600);
-        throw new ConflictException('이미 예약된 좌석입니다. (DB)');
+      const cachedStatus = await this.redisClient.get(statusKey);
+
+      if (cachedStatus && cachedStatus !== 'AVAILABLE') {
+        throw new ConflictException('이미 예약된 좌석입니다. (Cache)');
       }
 
-      const reservationId = existingId || crypto.randomUUID();
+      // 2. 캐시에 없으면 DB 확인 (최초 1회 warm-up 겸용)
+      if (!cachedStatus) {
+        const seat = await this.prisma.seat.findUnique({
+          where: { id: seatId },
+        });
+        if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
+        if (seat.status !== 'AVAILABLE') {
+          // 상태가 정합하지 않으면 캐시 갱신 후 거절
+          // 이때도 버전이 맞는지 확인하는 것이 안전하지만, 단순 상태 동기화 목적이므로 덮어씀
+          await this.redisClient.set(statusKey, seat.status, 'EX', 600);
+          throw new ConflictException('이미 예약된 좌석입니다. (DB)');
+        }
+        // 예약 요청 데이터에 version 포함 (선택 사항이나 worker에 전달하면 더 안전)
+        // 여기서는 DB 직전 조회를 worker가 다시 하므로 생략 가능하나, 구조상 확장성 고려
+      }
+
+      // 3. Redis Queue에 예약 요청 추가 (Write-Back)
+      const reservationId = crypto.randomUUID();
       const reservationData: ReservationQueueData = {
         id: reservationId,
         userId,
@@ -239,31 +96,22 @@ export class ReservationService {
         reservedAt: new Date().toISOString(),
       };
 
+      // 트랜잭션 대신 Redis Pipeline 사용 가능하지만 여기선 순차 처리
       await this.redisClient.rpush(
         'queue:reservations',
         JSON.stringify(reservationData),
       );
       this.queueCounter.labels('success').inc();
 
-      await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
+      // 4. Redis 좌석 상태 'HELD'로 업데이트 (선점)
+      await this.redisClient.set(statusKey, 'HELD', 'EX', 600); // 10분 TTL
 
+      // 사용자에게는 성공 응답 즉시 반환
       return {
         ...reservationData,
         reservedAt: new Date(reservationData.reservedAt),
         status: 'PENDING',
       };
-    } catch (err) {
-      if (
-        err instanceof ConflictException ||
-        err instanceof NotFoundException
-      ) {
-        throw err;
-      }
-      this.lockCounter.labels('fail').inc();
-      if (err instanceof Error && err.name === 'ExecutionError') {
-        throw new ConflictException('좌석 잠금 획득 실패 - 다시 시도해주세요.');
-      }
-      throw err;
     } finally {
       if (lock) {
         await lock.release().catch((err) => {
@@ -324,8 +172,12 @@ export class ReservationService {
           },
         });
 
-        // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
-        // 별도 스케줄러가 주기적으로 동기화함
+        // 잔여 좌석 감소
+
+        await tx.performance.update({
+          where: { id: seat.performanceId },
+          data: { availableSeats: { decrement: 1 } },
+        });
       });
 
       console.log(`Processed reservation ${id} for seat ${seatId}`);
@@ -412,15 +264,11 @@ export class ReservationService {
         },
       });
 
-      // Redis 상태도 AVAILABLE로 복구 (재예약 가능하도록)
-      // 트랜잭션 외부에서 수행하는 것이 좋지만, 여기서는 편의상 내부에서 비동기 실행 (await X)
-      // 단, 트랜잭션 롤백 시 정합성 문제가 생길 수 있으므로, 엄밀히는 트랜잭션 후행 작업이어야 함.
-      // 하지만 여기서는 즉시성 위해 수행.
-      const statusKey = `seat:${reservation.seatId}:status`;
-      this.redisClient.set(statusKey, 'AVAILABLE', 'EX', 600).catch(console.error);
-
-      // Performance 잔여 좌석 증가 로직 제거 (Performance 테이블 락 방지)
-      // 별도 스케줄러가 주기적으로 동기화함
+      // 4. Performance 잔여 좌석 증가
+      await tx.performance.update({
+        where: { id: reservation.seat.performanceId },
+        data: { availableSeats: { increment: 1 } },
+      });
 
       return updatedReservation;
     });
@@ -449,36 +297,5 @@ export class ReservationService {
     }
 
     return count;
-  }
-
-  // 주기적으로 실행될 잔여 좌석 동기화 로직
-  // Performance 테이블의 availableSeats를 실제 Seat 테이블의 status를 기반으로 갱신
-  async syncAvailableSeats() {
-    // 1. 모든 Performance ID 조회 (혹은 활성 Performance만 조회)
-    // 여기서는 간단하게 count 집계가 필요한 Performance들을 찾습니다.
-    // groupBy로 성능 최적화: PerformanceId별 AVAILABLE 좌석 수 집계
-    const seatCounts = await this.prisma.seat.groupBy({
-      by: ['performanceId'],
-      where: {
-        status: 'AVAILABLE',
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    // 2. Performance 테이블 업데이트
-    const results = await Promise.allSettled(
-      seatCounts.map((group) =>
-        this.prisma.performance.update({
-          where: { id: group.performanceId },
-          data: { availableSeats: group._count.id },
-        }),
-      ),
-    );
-
-    const updatedCount = results.filter((r) => r.status === 'fulfilled').length;
-
-    return updatedCount;
   }
 }
