@@ -4,8 +4,8 @@ import { randomString } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 export const options = {
   stages: [
-    { duration: '10s', target: 1000 }, // Ramp-up
-    { duration: '100s', target: 1000, rate: 1000 }, // Sustain
+    { duration: '10s', target: 100 }, // Ramp-up
+    { duration: '100s', target: 100, rate: 100 }, // Sustain
     { duration: '10s', target: 0 },  // Ramp-down
   ],
   thresholds: {

@@ -45,7 +45,7 @@ if (process.env.ENABLE_TRACING === 'true') {
       if (span.duration) {
         const [seconds, nanoseconds] = span.duration;
         const durationMb = seconds * 1000 + nanoseconds / 1000000;
-        
+
         // Save spans with duration >= 1000ms (1s)
         if (durationMb >= 1000) {
           this.processor.onEnd(span);
