@@ -3,6 +3,7 @@ import {
   Injectable,
   Inject,
   ConflictException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
@@ -54,6 +55,7 @@ const SAFE_RESERVATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 @Injectable()
 export class ReservationService {
   private redlock: Redlock;
+  private readonly logger = new Logger(ReservationService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -523,7 +525,9 @@ export class ReservationService {
         600,
       );
     } catch {
-      throw new ReservationStoreUnavailableException();
+      this.logger.error(
+        'Reservation cache synchronization failed after confirmation',
+      );
     }
     return updatedReservation;
   }
@@ -585,7 +589,9 @@ export class ReservationService {
         600,
       );
     } catch {
-      throw new ReservationStoreUnavailableException();
+      this.logger.error(
+        'Reservation cache synchronization failed after cancellation',
+      );
     }
     return updatedReservation;
   }

@@ -42,7 +42,9 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /home/ec2-user/fast_pass
-            git pull
+            git pull --ff-only
             docker compose -f docker-compose.prod.yaml pull
+            docker compose -f docker-compose.prod.yaml run --rm --no-deps app ./node_modules/.bin/prisma migrate deploy
             docker compose -f docker-compose.prod.yaml up -d

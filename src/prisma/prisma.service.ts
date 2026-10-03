@@ -3,6 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
+export function databaseSslRejectUnauthorized(value?: string): boolean {
+  return value === 'true';
+}
+
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -47,7 +51,9 @@ export class PrismaService
       poolConfig.ssl = false;
     } else {
       poolConfig.ssl = {
-        rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+        rejectUnauthorized: databaseSslRejectUnauthorized(
+          process.env.DB_SSL_REJECT_UNAUTHORIZED,
+        ),
       };
     }
 

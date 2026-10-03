@@ -1,8 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { ReservationService } from './reservation.service';
 
 describe('Reservation lifecycle authorization', () => {
   const counter = { inc: jest.fn(), labels: jest.fn().mockReturnThis() };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   function createService(
     ownerId = 'owner-1',
@@ -98,6 +102,32 @@ describe('Reservation lifecycle authorization', () => {
       'OCCUPIED',
       'EX',
       600,
+    );
+  });
+
+  it('returns the committed confirmation when cache synchronization fails', async () => {
+    const { service, redis } = createService('owner-1', 'CONFIRMED');
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    redis.set.mockRejectedValueOnce(new Error('cache unavailable'));
+
+    await expect(
+      service.confirmReservation('reservation-1', 'owner-1'),
+    ).resolves.toMatchObject({ status: 'CONFIRMED' });
+    expect(log).toHaveBeenCalledWith(
+      'Reservation cache synchronization failed after confirmation',
+    );
+  });
+
+  it('returns the committed cancellation when cache synchronization fails', async () => {
+    const { service, redis } = createService();
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    redis.set.mockRejectedValueOnce(new Error('cache unavailable'));
+
+    await expect(
+      service.cancelReservation('reservation-1', 'owner-1'),
+    ).resolves.toMatchObject({ status: 'CANCELLED' });
+    expect(log).toHaveBeenCalledWith(
+      'Reservation cache synchronization failed after cancellation',
     );
   });
 });

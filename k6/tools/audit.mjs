@@ -18,9 +18,9 @@ const { Pool } = pg;
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(toolDirectory, '..', '..');
 const PENDING_QUEUE = 'queue:reservations';
-const PROCESSING_QUEUE = 'queue:reservations:processing';
-const RETRY_QUEUE = 'queue:reservations:retry';
-const DLQ = 'queue:reservations:dlq';
+const PROCESSING_QUEUE = '{queue:reservations}:processing';
+const RETRY_QUEUE = '{queue:reservations}:retry';
+const DLQ = '{queue:reservations}:dlq';
 
 function integerEnvironment(name, fallback, minimum, maximum) {
   const raw = process.env[name] || String(fallback);

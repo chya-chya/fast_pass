@@ -11,9 +11,9 @@ export type TrackedReservationData = {
 };
 
 export const RESERVATION_QUEUE = 'queue:reservations';
-export const RESERVATION_PROCESSING_QUEUE = 'queue:reservations:processing';
-export const RESERVATION_RETRY_QUEUE = 'queue:reservations:retry';
-export const RESERVATION_DLQ = 'queue:reservations:dlq';
+export const RESERVATION_PROCESSING_QUEUE = '{queue:reservations}:processing';
+export const RESERVATION_RETRY_QUEUE = '{queue:reservations}:retry';
+export const RESERVATION_DLQ = '{queue:reservations}:dlq';
 
 const SAFE_TRACKING_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$/;
 const TRACKING_TTL_SECONDS = 24 * 60 * 60;

@@ -1,7 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+import calculateSlot from 'cluster-key-slot';
 import {
+  RESERVATION_DLQ,
   RESERVATION_PROCESSING_QUEUE,
   RESERVATION_QUEUE,
+  RESERVATION_RETRY_QUEUE,
   TestRunTrackerService,
 } from './test-run-tracker.service';
 
@@ -112,5 +115,16 @@ describe('TestRunTrackerService', () => {
       'LEFT',
       'RIGHT',
     );
+  });
+
+  it('keeps every queue key in the pending queue Redis Cluster slot', () => {
+    const queueKeys = [
+      RESERVATION_QUEUE,
+      RESERVATION_PROCESSING_QUEUE,
+      RESERVATION_RETRY_QUEUE,
+      RESERVATION_DLQ,
+    ];
+
+    expect(new Set(queueKeys.map((key) => calculateSlot(key))).size).toBe(1);
   });
 });
