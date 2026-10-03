@@ -1,4 +1,4 @@
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, Logger } from '@nestjs/common';
 import { ReservationService } from './reservation.service';
 
 describe('ReservationService result contract', () => {
@@ -6,6 +6,10 @@ describe('ReservationService result contract', () => {
     inc: jest.fn(),
     labels: jest.fn().mockReturnThis(),
   };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   function createService(pipelineResult: unknown) {
     const pipeline = {
@@ -40,6 +44,16 @@ describe('ReservationService result contract', () => {
 
   async function flush(service: ReservationService) {
     await (service as unknown as { flushQueue(): Promise<void> }).flushQueue();
+  }
+
+  function allowLock(service: ReservationService) {
+    Object.defineProperty(service, 'redlock', {
+      value: {
+        acquire: jest.fn().mockResolvedValue({
+          release: jest.fn().mockResolvedValue(undefined),
+        }),
+      },
+    });
   }
 
   it('uses 409 only for an explicit occupied-seat result', async () => {
@@ -145,5 +159,51 @@ describe('ReservationService result contract', () => {
       status: HttpStatus.SERVICE_UNAVAILABLE,
       errorCode: 'RESERVATION_LOCK_UNAVAILABLE',
     });
+  });
+
+  it('does not leave a long-lived hold when cold-cache enqueue fails', async () => {
+    const { service, redis, prisma, tracker } = createService([[null, 'MISS']]);
+    allowLock(service);
+    prisma.seat.findUnique.mockResolvedValueOnce({ status: 'AVAILABLE' });
+    tracker.enqueue.mockRejectedValueOnce(new Error('queue unavailable'));
+
+    const pending = service.reserveSeat('user-1', { seatId: 'seat-1' });
+    await flush(service);
+
+    await expect(pending).rejects.toMatchObject({
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      errorCode: 'RESERVATION_QUEUE_UNAVAILABLE',
+    });
+    expect(redis.set).not.toHaveBeenCalled();
+  });
+
+  it('returns the accepted reservation when post-enqueue cache sync fails', async () => {
+    const { service, redis, prisma, tracker } = createService([[null, 'MISS']]);
+    allowLock(service);
+    prisma.seat.findUnique.mockResolvedValueOnce({ status: 'AVAILABLE' });
+    redis.set.mockRejectedValueOnce(new Error('cache unavailable'));
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+    const pending = service.reserveSeat('user-1', { seatId: 'seat-1' });
+    await flush(service);
+
+    await expect(pending).resolves.toMatchObject({
+      userId: 'user-1',
+      seatId: 'seat-1',
+      status: 'PENDING',
+    });
+    expect(tracker.enqueue).toHaveBeenCalledTimes(1);
+    expect(redis.set).toHaveBeenCalledWith(
+      'seat:seat-1:status',
+      'HELD',
+      'EX',
+      600,
+    );
+    expect(tracker.enqueue.mock.invocationCallOrder[0]).toBeLessThan(
+      redis.set.mock.invocationCallOrder[0],
+    );
+    expect(log).toHaveBeenCalledWith(
+      'Reservation cache synchronization failed after queue enqueue',
+    );
   });
 });

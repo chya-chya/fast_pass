@@ -356,17 +356,19 @@ export class ReservationService {
       };
 
       try {
-        await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
-      } catch {
-        throw new ReservationStoreUnavailableException();
-      }
-
-      try {
         await this.testRunTracker.enqueue(reservationData);
       } catch {
         throw new ReservationQueueUnavailableException();
       }
       this.queueCounter.labels('success').inc();
+
+      try {
+        await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
+      } catch {
+        this.logger.error(
+          'Reservation cache synchronization failed after queue enqueue',
+        );
+      }
 
       return {
         ...reservationData,
