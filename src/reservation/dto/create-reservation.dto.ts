@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CreateReservationDto {
   @ApiProperty({
@@ -8,5 +8,7 @@ export class CreateReservationDto {
   })
   @IsNotEmpty()
   @IsString()
+  @MaxLength(128)
+  @Matches(/^[A-Za-z0-9_-]+$/)
   seatId: string;
 }

@@ -154,9 +154,18 @@ npm run test:e2e
 # K6 설치 (Mac)
 brew install k6
 
-# 로컬 서버 실행 후 테스트 진행
-K6_WEB_DASHBOARD=true k6 run k6/load-test.js
+# 전용 일회성 로컬 DB·Redis를 사용하는 서버인지 확인한 뒤 실행
+BASE_URL=http://127.0.0.1:3000 \
+TEST_ENVIRONMENT=local-disposable \
+TEST_ENV_ID=local-k6-disposable \
+TEST_DATABASE_ID=fast-pass-k6 \
+TEST_REDIS_ID=fast-pass-k6 \
+ALLOW_TEST_DATA_MUTATION=true \
+K6_WEB_DASHBOARD=true \
+k6 run k6/load-test.js
 ```
+
+레거시 k6 스크립트는 루프백 주소와 명시적인 일회성 테스트 환경 식별자가 없으면 요청 전에 중단됩니다. 현재 원격 실행은 승인 플래그 유무와 관계없이 차단되며, 실제 원격 부하는 별도 승인 manifest 검증 경로가 마련된 뒤에만 허용됩니다. 공유 개발·스테이징·운영 DB나 Redis에는 실행하지 마세요.
 
 ---
 

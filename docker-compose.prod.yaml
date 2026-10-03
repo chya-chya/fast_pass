@@ -9,6 +9,8 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
+      - DB_SSL_MODE=${DB_SSL_MODE:-require}
+      - DB_SSL_REJECT_UNAUTHORIZED=${DB_SSL_REJECT_UNAUTHORIZED:-true}
       - PORT=3000
       - BASE_URL=${BASE_URL}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -23,6 +25,8 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_CLUSTER_MODE=true
       - REDIS_USE_TLS=true
+      - REDIS_TLS_REJECT_UNAUTHORIZED=${REDIS_TLS_REJECT_UNAUTHORIZED:-true}
+      - ENABLE_TEST_PREFLIGHT=false
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-20}
       - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
       # - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}

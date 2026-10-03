@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261001065337-32010",
+  "scenario": "smoke",
+  "startedAt": "2026-10-01T06:53:44.886Z",
+  "finishedAt": "2026-10-01T06:53:50.178Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-01T06:53:45.068Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "9bac7e71a383de859a7c6bb2cdae966a7034c66b",
+    "gitDirty": true,
+    "scriptSha256": "d41f884061a414ca248af0a76a6dc7911dd96962cf2a8ec60df080ecc32f2e95"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:50040",
+    "runId": "local-smoke-20261001065337-32010",
+    "scenario": "smoke",
+    "vus": 1,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 1,
+    "seatCount": 5,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "phase2int2026100106533732010",
+    "testDatabaseName": "fast_pass_k6_phase2int2026100106533732010",
+    "testRedisId": "redis-phase2int2026100106533732010",
+    "redisKeyPrefix": "k6:phase2int2026100106533732010:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "3edd37fa23a6114f7aa2136760f7a16d0a1feec0",
+    "expectedMigrationId": "20260105075934",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-smoke-20261001065337-32010",
+    "remoteExecutionEnabled": false
+  }
+}

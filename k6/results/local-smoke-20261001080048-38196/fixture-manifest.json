@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261001080048-38196",
+  "testEnvId": "phase2int2026100108004838196",
+  "userIds": [
+    "cmup8vu8f0000le7tayxl5bqd"
+  ],
+  "eventIds": [
+    "cmup8vvqi0001le7tb8c5sr86"
+  ],
+  "performanceIds": [
+    "cmup8vwi70002le7tnoz55e73"
+  ],
+  "seatIds": [
+    "cmup8vwia0003le7t5dbutw5x",
+    "cmup8vwia0004le7ts2als8fl",
+    "cmup8vwia0005le7t8pdb8be4",
+    "cmup8vwia0006le7tn9l26sjy",
+    "cmup8vwia0007le7t57qi4wp9"
+  ],
+  "requestIds": [
+    "local-smoke-20261001080048-38196-req-0"
+  ],
+  "reservationIds": [
+    "f45f21d4-9199-4077-8be0-46d0208e2c2a"
+  ],
+  "counts": {
+    "users": 1,
+    "events": 1,
+    "performances": 1,
+    "seats": 5,
+    "acceptedReservations": 1
+  }
+}

@@ -41,6 +41,7 @@ services:
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/fast_pass?connection_limit=150&pool_timeout=2
+      - DB_SSL_MODE=disable
       - PORT=3000
       - BASE_URL=http://localhost:3000
       - PUBLIC_PATH=/app/public
@@ -56,6 +57,17 @@ services:
       - BROWSER=none
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_USE_TLS=false
+      - ENABLE_TEST_PREFLIGHT=${ENABLE_TEST_PREFLIGHT:-false}
+      - APP_ID=fast_pass
+      - APP_BUILD_SHA=${APP_BUILD_SHA:-}
+      - TEST_ENVIRONMENT=${TEST_ENVIRONMENT:-}
+      - TEST_ENV_ID=${TEST_ENV_ID:-}
+      - TEST_DATABASE_NAME=${TEST_DATABASE_NAME:-}
+      - TEST_REDIS_ID=${TEST_REDIS_ID:-}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-}
+      - TEST_PREFLIGHT_TOKEN=${TEST_PREFLIGHT_TOKEN:-}
+      - ALLOW_TEST_DATA_MUTATION=${ALLOW_TEST_DATA_MUTATION:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - OTEL_SERVICE_NAME=fast_pass
       - ENABLE_TRACING=${ENABLE_TRACING:-false}

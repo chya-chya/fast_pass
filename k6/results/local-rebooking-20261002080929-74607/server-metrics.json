@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-rebooking-20261002080929-74607",
+  "window": {
+    "startedAt": "2026-10-02T08:09:36.870Z",
+    "endedAt": "2026-10-02T08:09:38.639Z"
+  },
+  "app": {
+    "status": "unavailable",
+    "reason": "no per-run application metrics collector was configured",
+    "sourceUri": null
+  },
+  "database": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connections": 2,
+      "transactionsCommitted": "53",
+      "transactionsRolledBack": "0"
+    }
+  },
+  "redis": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connected_clients": 2,
+      "used_memory": 1645816,
+      "instantaneous_ops_per_sec": 101,
+      "evicted_keys": 0
+    }
+  }
+}

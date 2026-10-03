@@ -5,6 +5,7 @@ import { ReservationService } from './reservation.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 import { ReservationScheduler } from './reservation.scheduler';
+import { TestRunTrackerService } from './test-run-tracker.service';
 
 @Module({
   imports: [PrismaModule],
@@ -12,6 +13,7 @@ import { ReservationScheduler } from './reservation.scheduler';
   providers: [
     ReservationService,
     ReservationScheduler,
+    TestRunTrackerService,
     makeCounterProvider({
       name: 'reservation_request_total',
       help: 'Total number of reservation requests received',

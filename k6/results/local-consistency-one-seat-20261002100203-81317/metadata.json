@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-one-seat-20261002100203-81317",
+  "scenario": "consistency-one-seat",
+  "startedAt": "2026-10-02T10:02:10.497Z",
+  "finishedAt": "2026-10-02T10:02:12.755Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-02T10:02:10.698Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "9bac7e71a383de859a7c6bb2cdae966a7034c66b",
+    "gitDirty": true,
+    "scriptSha256": "c548710f548f22129a1db2eb8c65eb46e9869cd67de530400416646e8ef4cc30"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:63605",
+    "runId": "local-consistency-one-seat-20261002100203-81317",
+    "scenario": "consistency-one-seat",
+    "scriptPath": "k6/scenarios/consistency-one-seat.js",
+    "vus": 4,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 4,
+    "seatCount": 1,
+    "cacheProfile": "warm",
+    "executor": "per-vu-iterations",
+    "iterationsPerVu": 1,
+    "totalIterations": 4,
+    "totalRequests": 4,
+    "requestsPerSeat": 4,
+    "expectedAccepted": 1,
+    "expectedConflicts": 3,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100210020381317",
+    "testDatabaseName": "fast_pass_k6_k6int2026100210020381317",
+    "testRedisId": "redis-k6int2026100210020381317",
+    "redisKeyPrefix": "k6:k6int2026100210020381317:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "ee9b3c832c8b60ba0afd279e1b85eb38a9f521c3",
+    "expectedMigrationId": "20261002082000_rebooking_history",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-consistency-one-seat-20261002100203-81317",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}

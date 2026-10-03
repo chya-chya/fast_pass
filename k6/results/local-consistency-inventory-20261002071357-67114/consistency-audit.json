@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-inventory-20261002071357-67114",
+  "testEnvId": "k6int2026100207135767114",
+  "performanceId": "cmuqmnfjw0005zp7tqnicq9xo",
+  "auditedAt": "2026-10-02T07:14:06.720Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1046
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 4,
+    "enqueue": 2,
+    "processingStarted": 2,
+    "processedSuccess": 2,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 2,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 2,
+    "distinctSeatCount": 2,
+    "duplicateSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 2
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 2
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-consistency-inventory-20261002071357-67114-req-000001",
+      "local-consistency-inventory-20261002071357-67114-req-000002"
+    ],
+    "acceptedReservationIds": [
+      "adf1f1b5-5647-40b3-8ffd-706e915809a3",
+      "b5eb459b-0465-4b23-a0a0-40be18c63582"
+    ],
+    "processedReservationIds": [
+      "adf1f1b5-5647-40b3-8ffd-706e915809a3",
+      "b5eb459b-0465-4b23-a0a0-40be18c63582"
+    ],
+    "persistedReservationIds": [
+      "adf1f1b5-5647-40b3-8ffd-706e915809a3",
+      "b5eb459b-0465-4b23-a0a0-40be18c63582"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 4,
+    "actualCount": 4,
+    "expectedAccepted": 2,
+    "actualAccepted": 2,
+    "expectedConflicts": 2,
+    "actualConflicts": 2,
+    "expectedRequestsPerSeat": {
+      "cmuqmnfk00006zp7tphubnd8f": 2,
+      "cmuqmnfk00007zp7t3ke99vfk": 2
+    },
+    "actualRequestsPerSeat": {
+      "cmuqmnfk00006zp7tphubnd8f": 2,
+      "cmuqmnfk00007zp7t3ke99vfk": 2
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

@@ -8,6 +8,7 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request, Response } from 'express';
+import { getRequestCorrelationId } from '../http/request-correlation';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -16,16 +17,20 @@ export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest<Request>();
-    const { method, url } = request;
+    const response = ctx.getResponse<Response>();
+    const requestId = getRequestCorrelationId(request);
+    response.setHeader('X-Request-Id', requestId);
+    const { method, path } = request;
     const now = Date.now();
 
     return next.handle().pipe(
       tap(() => {
-        const response = ctx.getResponse<Response>();
         const statusCode = response.statusCode;
         const delay = Date.now() - now;
 
-        this.logger.log(`${method} ${url} ${statusCode} - ${delay}ms`);
+        this.logger.log(
+          `${method} ${path} ${statusCode} - ${delay}ms requestId=${requestId}`,
+        );
       }),
     );
   }

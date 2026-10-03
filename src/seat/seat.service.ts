@@ -13,8 +13,8 @@ export class SeatService {
   async getSeats(performanceId: string, status?: SeatStatus) {
     const seats = await this.seatRepository.findSeats(performanceId, status);
 
-    // Cache Warming (Fire-and-forget to minimize latency, or await for consistency)
-    // For the purpose of the load test, we want to ensure cache is warm.
+    // Complete cache warming before returning so an explicit test profile can
+    // deterministically retain or remove these exact fixture keys.
     if (seats.length > 0) {
       const pipeline = this.redisClient.pipeline();
       seats.forEach((seat) => {
@@ -27,9 +27,11 @@ export class SeatService {
         // If cache is HELD, we shouldn't overwrite with AVAILABLE from DB.
         pipeline.set(key, seat.status, 'PX', 600000, 'NX');
       });
-      pipeline.exec().catch((err) => {
-        console.error('Failed to warm up seat cache', err);
-      });
+      try {
+        await pipeline.exec();
+      } catch {
+        console.error('Failed to warm up seat cache');
+      }
     }
 
     return seats;

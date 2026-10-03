@@ -1,7 +1,11 @@
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
-import { randomString } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 import { Counter } from 'k6/metrics';
+import {
+  assertLegacyEnvironment,
+  LOCAL_BASE_URL,
+  randomString,
+} from './lib/legacy-safety.js';
 
 const successCounter = new Counter('reservation_success');
 
@@ -17,9 +21,10 @@ export const options = {
   },
 };
 
-const BASE_URL = 'http://fast-pass-apl-1011026839.ap-northeast-2.elb.amazonaws.com';
+const BASE_URL = __ENV.BASE_URL || LOCAL_BASE_URL;
 
 export function setup() {
+  assertLegacyEnvironment(__ENV);
   console.log('Running Setup...');
   
   const hostEmail = `admin-${randomString(4)}@test.com`;
@@ -106,4 +111,4 @@ export function teardown(data) {
   console.log(`Test Finished. Expected successful reservations: <= ${data.totalSeats}`);
 }
 
-//   K6_WEB_DASHBOARD=true k6 run k6/consistency-test.js
+// See README.md for the required disposable-environment safety variables.

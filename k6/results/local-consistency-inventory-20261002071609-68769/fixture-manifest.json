@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-inventory-20261002071609-68769",
+  "testEnvId": "k6int2026100207160968769",
+  "userIds": [
+    "cmuqmq91f0000b27tg9qfpjfd",
+    "cmuqmq96i0001b27thfxtcrn3",
+    "cmuqmq9bf0002b27t5djgpwuc",
+    "cmuqmq9gb0003b27t769bwhwr"
+  ],
+  "eventIds": [
+    "cmuqmq9ju0004b27tdjfcglkq"
+  ],
+  "performanceIds": [
+    "cmuqmq9k70005b27td2f1krcv"
+  ],
+  "seatIds": [
+    "cmuqmq9k90006b27tb59mhssi",
+    "cmuqmq9k90007b27t0t4gqrwy"
+  ],
+  "requestIds": [
+    "local-consistency-inventory-20261002071609-68769-req-000002",
+    "local-consistency-inventory-20261002071609-68769-req-000003"
+  ],
+  "reservationIds": [
+    "55b00764-cd41-4032-b916-d4b05785d477",
+    "7ab00b5e-1cce-4c82-af77-3e357e5aa4ee"
+  ],
+  "scenario": "consistency-inventory",
+  "cacheProfile": "cold",
+  "requestManifest": {
+    "schemaVersion": 1,
+    "totalRequests": 4,
+    "assignment": "global_iteration_modulo"
+  },
+  "expectedAccepted": 2,
+  "expectedConflicts": 2,
+  "requestsPerSeat": 2,
+  "counts": {
+    "users": 4,
+    "events": 1,
+    "performances": 1,
+    "seats": 2,
+    "acceptedReservations": 2,
+    "requestAttempts": 4
+  }
+}

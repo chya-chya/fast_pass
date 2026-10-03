@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-rebooking-20261002100107-80347",
+  "scenario": "rebooking",
+  "dataset": {
+    "cacheProfile": "warm",
+    "vus": 1,
+    "iterationsPerVu": 1,
+    "totalRequests": 2,
+    "seatCount": 1,
+    "expectedAccepted": 2,
+    "expectedConflicts": 0,
+    "requestsPerSeat": 2
+  },
+  "generatedAt": "2026-10-02T10:01:14.702Z",
+  "thresholdPassed": true,
+  "thresholdFailures": [],
+  "metrics": {
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "passes": 2,
+        "fails": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "rate==1": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 93.28769999999999,
+        "avg": 21.37133333333333,
+        "min": 2.521,
+        "med": 4.881,
+        "max": 114.994,
+        "p(90)": 69.61700000000002
+      },
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.08333333333333333,
+        "passes": 1,
+        "fails": 11
+      },
+      "thresholds": {}
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 2.743168139747958
+      },
+      "thresholds": {
+        "count==1": {
+          "ok": true
+        }
+      }
+    },
+    "accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 2,
+        "rate": 5.486336279495916
+      },
+      "thresholds": {
+        "count==2": {
+          "ok": true
+        }
+      }
+    },
+    "expected_conflict": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "unexpected_error": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "timeout": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "request_start_offset_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0
+      },
+      "thresholds": {}
+    },
+    "rebooking_first_accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 2.743168139747958,
+        "count": 1
+      },
+      "thresholds": {
+        "count==1": {
+          "ok": true
+        }
+      }
+    },
+    "rebooking_second_accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 2.743168139747958,
+        "count": 1
+      },
+      "thresholds": {
+        "count==1": {
+          "ok": true
+        }
+      }
+    }
+  }
+}

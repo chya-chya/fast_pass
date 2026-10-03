@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Inject,
   ConflictException,
@@ -11,21 +12,44 @@ import Redlock, { Lock } from 'redlock';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter } from 'prom-client';
+import {
+  TestRunTrackerService,
+  TrackedReservationData,
+} from './test-run-tracker.service';
+import { ApiContractException } from '../common/http/api-contract';
+import {
+  ReservationDatabaseUnavailableException,
+  ReservationLockUnavailableException,
+  ReservationQueueUnavailableException,
+  ReservationStoreUnavailableException,
+  SeatAlreadyReservedException,
+  SeatNotFoundException,
+} from './reservation.errors';
 
-interface ReservationQueueData {
+interface ReservationQueueData extends TrackedReservationData {
+  version?: number;
+}
+
+export interface AcceptedReservation {
+  id: string;
   userId: string;
   seatId: string;
-  id: string;
-  reservedAt: string;
-  version?: number;
+  reservedAt: Date;
+  status: 'PENDING';
+  requestId?: string;
+  runId?: string;
 }
 
 interface PendingReservation {
   userId: string;
   dto: CreateReservationDto;
+  runId?: string;
+  requestId?: string;
   resolve: (value: any) => void;
   reject: (reason?: any) => void;
 }
+
+const SAFE_RESERVATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 @Injectable()
 export class ReservationService {
@@ -41,6 +65,7 @@ export class ReservationService {
     public queueCounter: Counter<string>,
     @InjectMetric('reservation_processed_total')
     public processedCounter: Counter<string>,
+    private readonly testRunTracker: TestRunTrackerService,
   ) {
     this.redlock = new Redlock([this.redisClient], {
       driftFactor: 0.01,
@@ -62,14 +87,21 @@ export class ReservationService {
   // Lua Script for seat locking (Single Key Operation)
   // KEYS[1]: seat status key (e.g., "seat:1:status")
   // ARGV[1]: TTL for seat status (seconds)
+  // ARGV[2]: TTL for the cold-cache DB-check marker (milliseconds)
   // Returns:
   // 'OK'   - Success
   // 'FAIL' - Already reserved (in Cache)
   // 'MISS' - Seat status not in cache (need DB check)
+  // 'WAIT' - Another request owns the cold-cache DB check
   private readonly reservationScript = `
     local status = redis.call('get', KEYS[1])
     if status == false then
-      return 'MISS'
+      local claimed = redis.call('set', KEYS[1], 'CHECKING', 'PX', ARGV[2], 'NX')
+      if claimed then return 'MISS' end
+      status = redis.call('get', KEYS[1])
+    end
+    if status == 'CHECKING' then
+      return 'WAIT'
     end
     if status ~= 'AVAILABLE' then
       return 'FAIL'
@@ -81,12 +113,19 @@ export class ReservationService {
   async reserveSeat(
     userId: string,
     createReservationDto: CreateReservationDto,
-  ) {
+    testRunId?: string,
+    testRequestId?: string,
+  ): Promise<AcceptedReservation> {
+    const tracking = this.testRunTracker.normalizeTracking(
+      testRunId,
+      testRequestId,
+    );
     this.requestCounter.inc();
-    return new Promise((resolve, reject) => {
+    return new Promise<AcceptedReservation>((resolve, reject) => {
       this.reservationQueue.push({
         userId,
         dto: createReservationDto,
+        ...tracking,
         resolve,
         reject,
       });
@@ -104,12 +143,10 @@ export class ReservationService {
     const batch = [...this.reservationQueue];
     this.reservationQueue = [];
 
-    const pipeline = this.redisClient.pipeline();
-
-    // 1. Try to acquire locks for all requests in batch
+    // Materialize immutable IDs before touching seat state so the test-only
+    // request manifest can audit every attempted reservation.
     batch.forEach((req) => {
       const { seatId } = req.dto;
-      const statusKey = `seat:${seatId}:status`;
       const reservationId = crypto.randomUUID();
 
       // Attach ID to request object for later use
@@ -119,59 +156,103 @@ export class ReservationService {
         userId: req.userId,
         seatId,
         reservedAt: new Date().toISOString(),
+        runId: req.runId,
+        requestId: req.requestId,
       };
+    });
 
+    try {
+      await this.testRunTracker.recordAttempts(
+        batch.map((req) => (req as any).reservationData),
+      );
+    } catch {
+      batch.forEach((request) =>
+        request.reject(new ReservationStoreUnavailableException()),
+      );
+      return;
+    }
+
+    const pipeline = this.redisClient.pipeline();
+    // 1. Try to acquire locks for all requests in batch
+    batch.forEach((req) => {
+      const { seatId } = req.dto;
+      const statusKey = `seat:${seatId}:status`;
       pipeline.eval(
         this.reservationScript,
         1, // Number of keys
         statusKey,
         600, // ARGV[1]: TTL
+        2000, // ARGV[2]: cold-cache leader marker TTL
       );
     });
 
     try {
       const results = await pipeline.exec();
-      if (!results) return;
+      if (!results || results.length !== batch.length) {
+        batch.forEach((request) =>
+          request.reject(new ReservationStoreUnavailableException()),
+        );
+        return;
+      }
 
       const successfulReqs: typeof batch = [];
-      const pushPipeline = this.redisClient.pipeline();
 
       results.forEach((result, index) => {
         const [err, response] = result;
         const req = batch[index];
 
         if (err) {
-          console.error(`Redis Pipeline Error for req ${req.userId}:`, err);
-          req.reject(new ConflictException(`Redis Error: ${err.message}`));
+          console.error('Reservation Redis pipeline operation failed');
+          req.reject(new ReservationStoreUnavailableException());
           return;
         }
 
         if (response === 'OK') {
           // Lock acquired locally, prepare to push to queue
           successfulReqs.push(req);
-          pushPipeline.rpush(
-            'queue:reservations',
-            JSON.stringify((req as any).reservationData),
-          );
         } else if (response === 'FAIL') {
-          req.reject(new ConflictException('이미 예약된 좌석입니다. (Cache)'));
-        } else {
+          req.reject(new SeatAlreadyReservedException());
+        } else if (response === 'MISS') {
           // MISS case -> Slow Path
-           this.reserveSeatSlowPath(
+          this.reserveSeatSlowPath(
             req.userId,
             req.dto,
             (req as any).reservationId,
+            req.runId,
+            req.requestId,
           )
             .then(req.resolve)
             .catch(req.reject);
+        } else if (response === 'WAIT') {
+          this.waitForColdPathOutcome(req.dto.seatId)
+            .then(() => req.reject(new SeatAlreadyReservedException()))
+            .catch(req.reject);
+        } else {
+          req.reject(new ReservationStoreUnavailableException());
         }
       });
 
       // 2. Push successful requests to queue in a separate pipeline
       if (successfulReqs.length > 0) {
-        const pushResults = await pushPipeline.exec();
+        let pushResults;
+        try {
+          pushResults = await this.testRunTracker.enqueueMany(
+            successfulReqs.map((req) => (req as any).reservationData),
+          );
+        } catch {
+          successfulReqs.forEach((request) =>
+            request.reject(new ReservationQueueUnavailableException()),
+          );
+          return;
+        }
+        if (!pushResults || pushResults.length !== successfulReqs.length) {
+          successfulReqs.forEach((request) =>
+            request.reject(new ReservationQueueUnavailableException()),
+          );
+          return;
+        }
 
-        pushResults?.forEach((result, index) => {
+        pushResults.forEach((result, index) => {
           const [err] = result;
           const req = successfulReqs[index];
 
@@ -179,13 +260,8 @@ export class ReservationService {
             // CRITICAL: Failed to push to queue after locking seat
             // Ideally we should release the lock here, but TTL handles it eventually.
             // Log error explicitly.
-            console.error(
-              `Failed to push reservation to queue for ${req.userId}:`,
-              err,
-            );
-            req.reject(
-              new ConflictException('System Error: Queue Push Failed'),
-            );
+            console.error('Reservation queue enqueue failed');
+            req.reject(new ReservationQueueUnavailableException());
           } else {
             this.queueCounter.labels('success').inc();
             req.resolve({
@@ -196,18 +272,40 @@ export class ReservationService {
           }
         });
       }
-    } catch (e) {
-      console.error('Batch Process Error', e);
-      batch.forEach((r) => r.reject(e));
+    } catch {
+      console.error('Reservation Redis batch failed');
+      batch.forEach((request) =>
+        request.reject(new ReservationStoreUnavailableException()),
+      );
     }
   }
 
   /* Old Logic Removed from here, moved to reserveSeatSlowPath below */
   // 기존 Redlock 로직 (Slow Path)
+  private async waitForColdPathOutcome(seatId: string): Promise<void> {
+    const statusKey = `seat:${seatId}:status`;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      let status: string | null;
+      try {
+        status = await this.redisClient.get(statusKey);
+      } catch {
+        throw new ReservationStoreUnavailableException();
+      }
+      if (status === 'HELD' || status === 'RESERVED') return;
+      if (status !== 'CHECKING') {
+        throw new ReservationLockUnavailableException();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new ReservationLockUnavailableException();
+  }
+
   private async reserveSeatSlowPath(
     userId: string,
     createReservationDto: CreateReservationDto,
     existingId?: string,
+    runId?: string,
+    requestId?: string,
   ) {
     const { seatId } = createReservationDto;
     /*... logic continues ...*/
@@ -216,19 +314,33 @@ export class ReservationService {
 
     let lock: Lock | undefined;
     try {
-      lock = await this.redlock.acquire([resource], ttl);
+      try {
+        lock = await this.redlock.acquire([resource], ttl);
+      } catch {
+        this.lockCounter.labels('fail').inc();
+        throw new ReservationLockUnavailableException();
+      }
       this.lockCounter.labels('success').inc();
 
       // DB Check
-      const seat = await this.prisma.seat.findUnique({
-        where: { id: seatId },
-      });
-      if (!seat) throw new NotFoundException('좌석을 찾을 수 없습니다.');
+      let seat;
+      try {
+        seat = await this.prisma.seat.findUnique({
+          where: { id: seatId },
+        });
+      } catch {
+        throw new ReservationDatabaseUnavailableException();
+      }
+      if (!seat) throw new SeatNotFoundException();
 
       const statusKey = `seat:${seatId}:status`;
       if (seat.status !== 'AVAILABLE') {
-        await this.redisClient.set(statusKey, seat.status, 'EX', 600);
-        throw new ConflictException('이미 예약된 좌석입니다. (DB)');
+        try {
+          await this.redisClient.set(statusKey, seat.status, 'EX', 600);
+        } catch {
+          throw new ReservationStoreUnavailableException();
+        }
+        throw new SeatAlreadyReservedException();
       }
 
       const reservationId = existingId || crypto.randomUUID();
@@ -237,15 +349,22 @@ export class ReservationService {
         userId,
         seatId,
         reservedAt: new Date().toISOString(),
+        runId,
+        requestId,
       };
 
-      await this.redisClient.rpush(
-        'queue:reservations',
-        JSON.stringify(reservationData),
-      );
-      this.queueCounter.labels('success').inc();
+      try {
+        await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
+      } catch {
+        throw new ReservationStoreUnavailableException();
+      }
 
-      await this.redisClient.set(statusKey, 'HELD', 'EX', 600);
+      try {
+        await this.testRunTracker.enqueue(reservationData);
+      } catch {
+        throw new ReservationQueueUnavailableException();
+      }
+      this.queueCounter.labels('success').inc();
 
       return {
         ...reservationData,
@@ -253,33 +372,30 @@ export class ReservationService {
         status: 'PENDING',
       };
     } catch (err) {
-      if (
-        err instanceof ConflictException ||
-        err instanceof NotFoundException
-      ) {
+      if (err instanceof ApiContractException) {
         throw err;
       }
       this.lockCounter.labels('fail').inc();
-      if (err instanceof Error && err.name === 'ExecutionError') {
-        throw new ConflictException('좌석 잠금 획득 실패 - 다시 시도해주세요.');
-      }
       throw err;
     } finally {
       if (lock) {
-        await lock.release().catch((err) => {
-          console.error('Lock release failed', err);
+        await lock.release().catch(() => {
+          console.error('Reservation lock release failed');
         });
       }
     }
   }
 
   async processNextReservation() {
+    let rawData: string | null = null;
+    let data: ReservationQueueData | undefined;
     try {
-      const rawData = await this.redisClient.lpop('queue:reservations');
+      rawData = await this.testRunTracker.claimNext();
       if (!rawData) return false; // Queue empty
 
-      const data = JSON.parse(rawData) as ReservationQueueData;
+      data = JSON.parse(rawData) as ReservationQueueData;
       const { userId, seatId, id, reservedAt } = data;
+      await this.testRunTracker.markProcessingStarted(data);
 
       await this.prisma.$transaction(async (tx) => {
         const seat = await tx.seat.findUnique({ where: { id: seatId } });
@@ -328,26 +444,43 @@ export class ReservationService {
         // 별도 스케줄러가 주기적으로 동기화함
       });
 
+      await this.testRunTracker.markSuccess(rawData, data);
       console.log(`Processed reservation ${id} for seat ${seatId}`);
       this.processedCounter.labels('success').inc();
       return true; // Processed one
     } catch (error) {
       // Redis lpop 실패 혹은 트랜잭션 실패 시
-      console.error(`Failed to process reservation:`, error);
+      console.error('Failed to process reservation');
       this.processedCounter.labels('fail').inc();
-      // 복구 로직이 필요하다면 여기에 추가 (예: DLQ)
+      if (rawData) {
+        const failureCode =
+          error instanceof ConflictException ||
+          error instanceof NotFoundException
+            ? 'DOMAIN_REJECTION'
+            : 'PROCESSING_ERROR';
+        await this.testRunTracker
+          .markFailure(rawData, data, failureCode)
+          .catch(() => undefined);
+      }
       return false;
     }
   }
 
-  async confirmReservation(reservationId: string) {
-    return await this.prisma.$transaction(async (tx) => {
+  private assertReservationId(reservationId: string) {
+    if (!SAFE_RESERVATION_ID.test(reservationId)) {
+      throw new BadRequestException('예약 ID 형식이 올바르지 않습니다.');
+    }
+  }
+
+  async confirmReservation(reservationId: string, userId: string) {
+    this.assertReservationId(reservationId);
+    const updatedReservation = await this.prisma.$transaction(async (tx) => {
       // 1. 예약 조회
       const reservation = await tx.reservation.findUnique({
         where: { id: reservationId },
       });
 
-      if (!reservation) {
+      if (!reservation || reservation.userId !== userId) {
         throw new NotFoundException('예약을 찾을 수 없습니다.');
       }
 
@@ -358,13 +491,18 @@ export class ReservationService {
       }
 
       // 2. Reservation 상태 변경 & paidAt 기록
-      const updatedReservation = await tx.reservation.update({
-        where: { id: reservationId },
+      const { count } = await tx.reservation.updateMany({
+        where: { id: reservationId, userId, status: 'PENDING' },
         data: {
           status: 'CONFIRMED',
           paidAt: new Date(),
         },
       });
+      if (count !== 1) {
+        throw new ConflictException(
+          '결제 대기 중인 예약만 확정할 수 있습니다.',
+        );
+      }
 
       // 3. Seat 상태 변경 (OCCUPIED) + Version 증가
       await tx.seat.update({
@@ -375,19 +513,34 @@ export class ReservationService {
         },
       });
 
-      return updatedReservation;
+      return tx.reservation.findUniqueOrThrow({ where: { id: reservationId } });
     });
+    try {
+      await this.redisClient.set(
+        `seat:${updatedReservation.seatId}:status`,
+        'OCCUPIED',
+        'EX',
+        600,
+      );
+    } catch {
+      throw new ReservationStoreUnavailableException();
+    }
+    return updatedReservation;
   }
 
-  async cancelReservation(reservationId: string) {
-    return await this.prisma.$transaction(async (tx) => {
+  async cancelReservation(reservationId: string, userId: string) {
+    return this.releaseReservation(reservationId, userId);
+  }
+
+  private async releaseReservation(reservationId: string, userId?: string) {
+    this.assertReservationId(reservationId);
+    const updatedReservation = await this.prisma.$transaction(async (tx) => {
       // 1. 예약 및 좌석 정보 조회
       const reservation = await tx.reservation.findUnique({
         where: { id: reservationId },
-        include: { seat: true }, // PerformanceId 조회를 위해 seat 포함
       });
 
-      if (!reservation) {
+      if (!reservation || (userId && reservation.userId !== userId)) {
         throw new NotFoundException('예약을 찾을 수 없습니다.');
       }
 
@@ -398,32 +551,43 @@ export class ReservationService {
       }
 
       // 2. Reservation 상태 변경 (CANCELLED)
-      const updatedReservation = await tx.reservation.update({
-        where: { id: reservationId },
+      const reservationUpdate = await tx.reservation.updateMany({
+        where: { id: reservationId, status: 'PENDING' },
         data: { status: 'CANCELLED' },
       });
+      if (reservationUpdate.count !== 1) {
+        throw new ConflictException(
+          '결제 대기 중인 예약만 취소할 수 있습니다.',
+        );
+      }
 
       // 3. Seat 상태 복구 (AVAILABLE) + Version 증가
-      await tx.seat.update({
-        where: { id: reservation.seatId },
+      const seatUpdate = await tx.seat.updateMany({
+        where: { id: reservation.seatId, status: 'HELD' },
         data: {
           status: 'AVAILABLE',
           version: { increment: 1 },
         },
       });
-
-      // Redis 상태도 AVAILABLE로 복구 (재예약 가능하도록)
-      // 트랜잭션 외부에서 수행하는 것이 좋지만, 여기서는 편의상 내부에서 비동기 실행 (await X)
-      // 단, 트랜잭션 롤백 시 정합성 문제가 생길 수 있으므로, 엄밀히는 트랜잭션 후행 작업이어야 함.
-      // 하지만 여기서는 즉시성 위해 수행.
-      const statusKey = `seat:${reservation.seatId}:status`;
-      this.redisClient.set(statusKey, 'AVAILABLE', 'EX', 600).catch(console.error);
+      if (seatUpdate.count !== 1) {
+        throw new ConflictException('예약 좌석 상태를 복구할 수 없습니다.');
+      }
 
       // Performance 잔여 좌석 증가 로직 제거 (Performance 테이블 락 방지)
       // 별도 스케줄러가 주기적으로 동기화함
-
-      return updatedReservation;
+      return tx.reservation.findUniqueOrThrow({ where: { id: reservationId } });
     });
+    try {
+      await this.redisClient.set(
+        `seat:${updatedReservation.seatId}:status`,
+        'AVAILABLE',
+        'EX',
+        600,
+      );
+    } catch {
+      throw new ReservationStoreUnavailableException();
+    }
+    return updatedReservation;
   }
 
   async expireOverdueReservations(thresholdDate: Date) {
@@ -441,10 +605,10 @@ export class ReservationService {
     let count = 0;
     for (const reservation of overdueReservations) {
       try {
-        await this.cancelReservation(reservation.id);
+        await this.releaseReservation(reservation.id);
         count++;
-      } catch (error) {
-        console.error(`Failed to expire reservation ${reservation.id}:`, error);
+      } catch {
+        console.error(`Failed to expire reservation ${reservation.id}`);
       }
     }
 

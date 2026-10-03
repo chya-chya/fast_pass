@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-inventory-20261002071609-68769",
+  "scenario": "consistency-inventory",
+  "startedAt": "2026-10-02T07:16:16.792Z",
+  "finishedAt": "2026-10-02T07:16:18.982Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-02T07:16:16.985Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "9bac7e71a383de859a7c6bb2cdae966a7034c66b",
+    "gitDirty": true,
+    "scriptSha256": "5ec655cf0b66c27981e8f92f6e7e3178dd23d5c853ce7cce63f748da7b08b20f"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:61989",
+    "runId": "local-consistency-inventory-20261002071609-68769",
+    "scenario": "consistency-inventory",
+    "scriptPath": "k6/scenarios/consistency-inventory.js",
+    "vus": 4,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 4,
+    "seatCount": 2,
+    "cacheProfile": "cold",
+    "executor": "per-vu-iterations",
+    "iterationsPerVu": 1,
+    "totalIterations": 4,
+    "requestsPerSeat": 2,
+    "expectedAccepted": 2,
+    "expectedConflicts": 2,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100207160968769",
+    "testDatabaseName": "fast_pass_k6_k6int2026100207160968769",
+    "testRedisId": "redis-k6int2026100207160968769",
+    "redisKeyPrefix": "k6:k6int2026100207160968769:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "0d3118ca06a4a5478d36701946608b1e502e8b4a",
+    "expectedMigrationId": "20260105075934",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-consistency-inventory-20261002071609-68769",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}
