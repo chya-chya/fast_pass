@@ -101,6 +101,17 @@ describe('ReservationService result contract', () => {
     });
   });
 
+  it('classifies an occupied cold-cache outcome as an already reserved seat', async () => {
+    const { service, redis } = createService([[null, 'WAIT']]);
+    redis.get.mockResolvedValueOnce('OCCUPIED');
+    const pending = service.reserveSeat('user-1', { seatId: 'seat-1' });
+    await flush(service);
+    await expect(pending).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      errorCode: 'SEAT_ALREADY_RESERVED',
+    });
+  });
+
   it('does not hide a cold-cache Redis read failure as a conflict', async () => {
     const { service, redis } = createService([[null, 'WAIT']]);
     redis.get.mockRejectedValueOnce(new Error('redis unavailable'));
@@ -205,5 +216,47 @@ describe('ReservationService result contract', () => {
     expect(log).toHaveBeenCalledWith(
       'Reservation cache synchronization failed after queue enqueue',
     );
+  });
+
+  it('preserves the processing payload when acknowledgement fails after commit', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    };
+    const rawData = JSON.stringify(data);
+    const prisma = {
+      $transaction: jest.fn().mockResolvedValue(undefined),
+    };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(rawData),
+      markProcessingStarted: jest.fn().mockResolvedValue(undefined),
+      markSuccess: jest.fn().mockRejectedValue(new Error('redis unavailable')),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+    };
+    const processedCounter = {
+      inc: jest.fn(),
+      labels: jest.fn().mockReturnThis(),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      processedCounter as never,
+      tracker as never,
+    );
+    const log = jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tracker.markSuccess).toHaveBeenCalledWith(rawData, data);
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(processedCounter.labels).toHaveBeenCalledWith('fail');
+    expect(processedCounter.inc).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith('Failed to process reservation');
   });
 });

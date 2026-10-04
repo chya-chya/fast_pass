@@ -293,7 +293,7 @@ export class ReservationService {
       } catch {
         throw new ReservationStoreUnavailableException();
       }
-      if (status === 'HELD' || status === 'RESERVED') return;
+      if (status === 'HELD' || status === 'OCCUPIED') return;
       if (status !== 'CHECKING') {
         throw new ReservationLockUnavailableException();
       }
@@ -393,6 +393,7 @@ export class ReservationService {
   async processNextReservation() {
     let rawData: string | null = null;
     let data: ReservationQueueData | undefined;
+    let transactionCommitted = false;
     try {
       rawData = await this.testRunTracker.claimNext();
       if (!rawData) return false; // Queue empty
@@ -447,6 +448,7 @@ export class ReservationService {
         // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
         // 별도 스케줄러가 주기적으로 동기화함
       });
+      transactionCommitted = true;
 
       await this.testRunTracker.markSuccess(rawData, data);
       console.log(`Processed reservation ${id} for seat ${seatId}`);
@@ -456,7 +458,7 @@ export class ReservationService {
       // Redis lpop 실패 혹은 트랜잭션 실패 시
       console.error('Failed to process reservation');
       this.processedCounter.labels('fail').inc();
-      if (rawData) {
+      if (rawData && !transactionCommitted) {
         const failureCode =
           error instanceof ConflictException ||
           error instanceof NotFoundException
