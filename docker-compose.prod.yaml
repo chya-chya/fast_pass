@@ -1,6 +1,6 @@
 services:
   app:
-    image: sooyen/fast_pass:latest
+    image: ${APP_IMAGE:-sooyen/fast_pass:latest}
     restart: always
     ports:
       - '9209:9209'
