@@ -28,6 +28,7 @@ permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
 - terminal marker: reservation ID와 source stream ID 조합별 성공·실패 종결을 24시간 보존해 같은 delivery의 중복 ack/DLQ 기록을 막는다.
 - poison payload, 없는 좌석, 활성 좌석 충돌, reservation ID/payload 불일치는 재시도하지 않는다.
 - 일반 DB 오류는 PEL에 남겨 제한 횟수만큼 다시 전달하고, 한도를 넘으면 DLQ로 이동한다.
+- transaction 오류 뒤 reservation ID 화해 조회도 실패해 commit 결과를 알 수 없는 경우에는 `OUTCOME_UNKNOWN`으로 분류한다. 이 상태는 delivery 한도를 넘겨도 ACK/DLQ하지 않고, DB 결과를 확인할 수 있을 때까지 PEL에 보존한다.
 
 `XACK`와 PostgreSQL commit은 하나의 분산 transaction으로 묶지 않는다. 대신 DB commit을 먼저 수행하고 reservation ID 기반 idempotency로 commit-after-crash 구간을 정상 복구 경로로 만든다. 따라서 delivery는 exactly-once가 아니라 **at-least-once delivery + idempotent database effect**다.
 
@@ -52,7 +53,7 @@ permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
 
 ## 실제 앱 Smoke와 ID 감사
 
-- Run ID: `local-smoke-20261005095949-35593`
+- Run ID: `local-smoke-20261005103558-41063`
 - 실행: `k6/tools/run-local-integration.sh smoke`
 - 상태: `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`
 - 감사 판정: `PASS`, reasons 없음
@@ -60,8 +61,8 @@ permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
 - pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
 - worker in-flight: `0`
 - conservation difference: `0`
-- drain: `1,071ms`
-- 증거: `k6/results/local-smoke-20261005095949-35593/`
+- drain: `1,089ms`
+- 증거: `k6/results/local-smoke-20261005103558-41063/`
 
 감사기는 stream consumer group의 `lag`를 pending으로, PEL 수를 processing으로, delivery count가 2 이상인 PEL 항목을 retry로 읽는다. 따라서 새 메시지가 모두 claim됐더라도 PEL 또는 run별 worker in-flight가 남아 있으면 drain 완료로 판정하지 않는다. `k6/tests/audit.test.js`도 pending=0인 경우를 포함해 processing, retry, worker in-flight 중 하나라도 남으면 `isDrainCandidate()`가 false임을 검증한다.
 
@@ -80,9 +81,9 @@ duplicate DB IDs와 unexpected DB IDs = ∅
 성공 Smoke Run에서는 다음과 같이 수렴했다.
 
 ```text
-accepted/enqueued = {aecf79f2-7cdb-44c5-9a16-87c76f1974fa}
-processed-success = {aecf79f2-7cdb-44c5-9a16-87c76f1974fa}
-DB persisted = {aecf79f2-7cdb-44c5-9a16-87c76f1974fa}
+accepted/enqueued = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
+processed-success = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
+DB persisted = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
 terminal-failure/DLQ/PEL = {}
 ```
 
@@ -102,6 +103,6 @@ terminal-failure/DLQ/PEL = {}
 - queue durability disposable integration: 7/7 통과
 - rebooking disposable integration: 2/2 통과
 - 실제 앱 Smoke + artifact finalize + ID audit: 통과
-- reservation 전체 Jest: 34개 통과, 9개 조건부 통합 테스트 skip
+- reservation 전체 Jest: 36개 통과, 9개 조건부 통합 테스트 skip
 - queue drain/ID audit Node test: 38/38 통과
 - Compose 설정 및 shell/JavaScript 문법 검사: 통과

@@ -1,4 +1,4 @@
-import { HttpStatus, Logger } from '@nestjs/common';
+import { ConflictException, HttpStatus, Logger } from '@nestjs/common';
 import { ReservationService } from './reservation.service';
 
 describe('ReservationService result contract', () => {
@@ -265,5 +265,60 @@ describe('ReservationService result contract', () => {
     expect(processedCounter.labels).toHaveBeenCalledWith('fail');
     expect(processedCounter.inc).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith('Failed to process reservation');
+  });
+
+  it('retries at max delivery when the reservation outcome is unknown', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    };
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 3,
+      reclaimed: false,
+    };
+    const reconciliationError = new Error('database read unavailable');
+    const prisma = {
+      $transaction: jest
+        .fn()
+        .mockRejectedValue(new ConflictException('seat conflict')),
+      reservation: {
+        findUnique: jest.fn().mockRejectedValue(reconciliationError),
+      },
+    };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      markProcessingStarted: jest.fn().mockResolvedValue(undefined),
+      markSuccess: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(prisma.reservation.findUnique).toHaveBeenCalledWith({
+      where: { id: data.id },
+    });
+    expect(tracker.markRetry).toHaveBeenCalledWith(
+      message,
+      data,
+      'OUTCOME_UNKNOWN',
+    );
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(tracker.markSuccess).not.toHaveBeenCalled();
   });
 });

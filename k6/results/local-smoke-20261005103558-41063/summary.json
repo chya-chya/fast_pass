@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runId": "local-smoke-20261005095949-35593",
+  "runId": "local-smoke-20261005103558-41063",
   "scenario": "smoke",
   "dataset": {
     "cacheProfile": "warm",
@@ -12,7 +12,7 @@
     "expectedConflicts": 0,
     "requestsPerSeat": 0.2
   },
-  "generatedAt": "2026-10-05T10:00:04.023Z",
+  "generatedAt": "2026-10-05T10:36:12.344Z",
   "thresholdPassed": true,
   "thresholdFailures": [],
   "metrics": {
@@ -20,9 +20,9 @@
       "type": "rate",
       "contains": "default",
       "values": {
+        "fails": 0,
         "rate": 1,
-        "passes": 2,
-        "fails": 0
+        "passes": 2
       },
       "thresholds": {
         "rate==1": {
@@ -34,12 +34,12 @@
       "type": "trend",
       "contains": "time",
       "values": {
-        "avg": 39.44175,
-        "min": 4.693,
-        "med": 20.16,
-        "max": 141.386,
-        "p(90)": 95.8447,
-        "p(95)": 118.61534999999998
+        "max": 120.076,
+        "p(90)": 89.1605,
+        "p(95)": 104.61824999999999,
+        "avg": 38.564249999999994,
+        "min": 10.668,
+        "med": 18.041
       },
       "thresholds": {}
     },
@@ -58,7 +58,7 @@
       "contains": "default",
       "values": {
         "count": 1,
-        "rate": 0.14267822436379066
+        "rate": 0.14253296181641728
       },
       "thresholds": {}
     },
@@ -76,8 +76,8 @@
       "type": "counter",
       "contains": "default",
       "values": {
-        "rate": 0.14267822436379066,
-        "count": 1
+        "count": 1,
+        "rate": 0.14253296181641728
       },
       "thresholds": {}
     },

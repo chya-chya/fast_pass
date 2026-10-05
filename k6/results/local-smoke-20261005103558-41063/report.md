@@ -1,4 +1,4 @@
-# k6 Run local-smoke-20261005095949-35593
+# k6 Run local-smoke-20261005103558-41063
 
 ## 목표
 
@@ -6,18 +6,18 @@ smoke 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정�
 
 ## 조건
 
-- Test environment: k6int2026100509594935593
+- Test environment: k6int2026100510355841063
 - VU / RPS / duration: 1 / 1 / 5s
 - Cache profile: warm
 - Expected accepted / conflict: 1 / 0
-- Performance ID: cmuv2wch20002kc7t6pjinoob
+- Performance ID: cmuv46tk00002ro7t7c4p9o2y
 
 ## 핵심 수치
 
 - Accepted reservations: 1
 - Persisted reservations: 1
 - Request attempts: not applicable
-- Drain time: 1071ms
+- Drain time: 1089ms
 - Pending / processing / retry / DLQ: 0 / 0 / 0 / 0
 
 ## 정합성 결과

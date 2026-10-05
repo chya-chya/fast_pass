@@ -124,11 +124,11 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 ## 7단계 Redis Streams 검증 기록
 
-2026-10-05에 Redis Streams consumer group, `XAUTOCLAIM`, reservation ID idempotency를 적용한 뒤 `local-smoke-20261005095949-35593` Run을 실행했다. 이 Run은 `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`이며 consistency audit가 `PASS`다.
+2026-10-05에 Redis Streams consumer group, `XAUTOCLAIM`, reservation ID idempotency를 적용한 뒤 `local-smoke-20261005103558-41063` Run을 실행했다. 이 Run은 `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`이며 consistency audit가 `PASS`다.
 
 - accepted / processed / DB persisted: `1 / 1 / 1` (동일 reservation ID)
 - pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
 - worker in-flight / conservation difference: `0 / 0`
-- drain: `1,071ms`
-- 상세 결과: [`local-smoke-20261005095949-35593`](./local-smoke-20261005095949-35593/)
+- drain: `1,089ms`
+- 상세 결과: [`local-smoke-20261005103558-41063`](./local-smoke-20261005103558-41063/)
 - 큐 장애 주입 판정: [`QUEUE_DURABILITY.md`](../../docs/performance/QUEUE_DURABILITY.md)

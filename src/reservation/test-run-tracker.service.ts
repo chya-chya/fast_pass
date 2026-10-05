@@ -33,6 +33,7 @@ type StreamEntry = [string, string[]];
 @Injectable()
 export class TestRunTrackerService {
   private groupReady?: Promise<void>;
+  private reclaimCursor = '0-0';
   private readonly consumerName = [
     hostname(),
     process.env.NODE_APP_INSTANCE || '0',
@@ -83,7 +84,9 @@ export class TestRunTrackerService {
           '0',
           'MKSTREAM',
         )
-        .then(() => undefined)
+        .then(() => {
+          this.reclaimCursor = '0-0';
+        })
         .catch((error: unknown) => {
           if (error instanceof Error && error.message.includes('BUSYGROUP')) {
             return;
@@ -212,10 +215,11 @@ export class TestRunTrackerService {
       RESERVATION_CONSUMER_GROUP,
       this.consumerName,
       this.reclaimIdleMs(),
-      '0-0',
+      this.reclaimCursor,
       'COUNT',
       1,
     )) as [string, StreamEntry[]];
+    this.reclaimCursor = reclaimed[0] || '0-0';
     const reclaimedEntry = reclaimed[1]?.[0];
     if (reclaimedEntry) {
       return this.parseEntry(
@@ -246,6 +250,7 @@ export class TestRunTrackerService {
     } catch (error) {
       if (error instanceof Error && error.message.includes('NOGROUP')) {
         this.groupReady = undefined;
+        this.reclaimCursor = '0-0';
         await this.ensureConsumerGroup();
         return this.claim();
       }

@@ -59,6 +59,10 @@ class PermanentQueueMessageError extends Error {
   }
 }
 
+class QueueOutcomeUnknownError extends Error {
+  readonly failureCode = 'OUTCOME_UNKNOWN';
+}
+
 @Injectable()
 export class ReservationService {
   private redlock: Redlock;
@@ -466,9 +470,14 @@ export class ReservationService {
         });
       } catch (error) {
         if (error instanceof PermanentQueueMessageError) throw error;
-        const existing = await this.prisma.reservation
-          .findUnique({ where: { id } })
-          .catch(() => null);
+        let existing;
+        try {
+          existing = await this.prisma.reservation.findUnique({
+            where: { id },
+          });
+        } catch {
+          throw new QueueOutcomeUnknownError();
+        }
         if (!existing) throw error;
         if (!this.matchesQueueData(existing, data)) {
           throw new PermanentQueueMessageError('IDEMPOTENCY_CONFLICT');
@@ -487,7 +496,11 @@ export class ReservationService {
       if (message && !transactionCommitted) {
         const failureCode = this.queueFailureCode(error);
         const maxDeliveries = this.maxQueueDeliveries();
-        if (
+        if (error instanceof QueueOutcomeUnknownError) {
+          await this.testRunTracker
+            .markRetry(message, data, failureCode)
+            .catch(() => undefined);
+        } else if (
           error instanceof PermanentQueueMessageError ||
           error instanceof ConflictException ||
           error instanceof NotFoundException ||
@@ -554,6 +567,7 @@ export class ReservationService {
 
   private queueFailureCode(error: unknown): string {
     if (error instanceof PermanentQueueMessageError) return error.failureCode;
+    if (error instanceof QueueOutcomeUnknownError) return error.failureCode;
     if (
       error instanceof ConflictException ||
       error instanceof NotFoundException

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "runId": "local-smoke-20261005095949-35593",
-  "testEnvId": "k6int2026100509594935593",
-  "performanceId": "cmuv2wch20002kc7t6pjinoob",
-  "auditedAt": "2026-10-05T10:00:05.209Z",
+  "runId": "local-smoke-20261005103558-41063",
+  "testEnvId": "k6int2026100510355841063",
+  "performanceId": "cmuv46tk00002ro7t7c4p9o2y",
+  "auditedAt": "2026-10-05T10:36:13.539Z",
   "producer": {
     "state": "COMPLETED"
   },
@@ -12,7 +12,7 @@
     "timeoutMs": 30000,
     "pollMs": 100,
     "stableMs": 1000,
-    "elapsedMs": 1071
+    "elapsedMs": 1089
   },
   "queues": {
     "pending": 0,
@@ -47,16 +47,16 @@
   },
   "ids": {
     "acceptedRequestIds": [
-      "local-smoke-20261005095949-35593-req-0"
+      "local-smoke-20261005103558-41063-req-0"
     ],
     "acceptedReservationIds": [
-      "aecf79f2-7cdb-44c5-9a16-87c76f1974fa"
+      "0427deba-60b5-4e1b-bfd5-91e7a12f16e6"
     ],
     "processedReservationIds": [
-      "aecf79f2-7cdb-44c5-9a16-87c76f1974fa"
+      "0427deba-60b5-4e1b-bfd5-91e7a12f16e6"
     ],
     "persistedReservationIds": [
-      "aecf79f2-7cdb-44c5-9a16-87c76f1974fa"
+      "0427deba-60b5-4e1b-bfd5-91e7a12f16e6"
     ],
     "failedReservationIds": [],
     "missingPersistedIds": [],

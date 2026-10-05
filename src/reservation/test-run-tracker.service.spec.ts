@@ -37,6 +37,7 @@ describe('TestRunTrackerService', () => {
       pipeline: jest.fn(() => pipeline),
       xgroup: jest.fn().mockResolvedValue('OK'),
       xautoclaim: jest.fn().mockResolvedValue(['0-0', []]),
+      xpending: jest.fn().mockResolvedValue([]),
       xreadgroup: jest.fn().mockResolvedValue(null),
       pipelineCommands: pipeline,
     };
@@ -136,6 +137,40 @@ describe('TestRunTrackerService', () => {
       'STREAMS',
       RESERVATION_STREAM,
       '>',
+    );
+  });
+
+  it('continues stale scans from the cursor returned by XAUTOCLAIM', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const secondFields = [
+      'reservationId',
+      'reservation-2',
+      'payload',
+      '{"id":"reservation-2"}',
+    ];
+    redis.xautoclaim
+      .mockResolvedValueOnce(['5-0', []])
+      .mockResolvedValueOnce(['0-0', [['9-0', secondFields]]]);
+    redis.xpending.mockResolvedValueOnce([['9-0', 'old-worker', 30000, 3]]);
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.claimNext()).resolves.toBeNull();
+    await expect(service.claimNext()).resolves.toMatchObject({
+      streamId: '9-0',
+      deliveryCount: 3,
+      reclaimed: true,
+    });
+
+    expect(redis.xautoclaim).toHaveBeenNthCalledWith(
+      2,
+      RESERVATION_STREAM,
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+      30000,
+      '5-0',
+      'COUNT',
+      1,
     );
   });
 
