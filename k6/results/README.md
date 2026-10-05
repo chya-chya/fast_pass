@@ -121,3 +121,14 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 일반 DB 이름과 지속 볼륨을 사용하는 현재 기본 Compose는 의도적으로 preflight에서 차단되므로 `INTEGRATION_VERIFIED`의 근거가 될 수 없다.
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
+
+## 7단계 Redis Streams 검증 기록
+
+2026-10-05에 Redis Streams consumer group, `XAUTOCLAIM`, reservation ID idempotency를 적용한 뒤 `local-smoke-20261005095949-35593` Run을 실행했다. 이 Run은 `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`이며 consistency audit가 `PASS`다.
+
+- accepted / processed / DB persisted: `1 / 1 / 1` (동일 reservation ID)
+- pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
+- worker in-flight / conservation difference: `0 / 0`
+- drain: `1,071ms`
+- 상세 결과: [`local-smoke-20261005095949-35593`](./local-smoke-20261005095949-35593/)
+- 큐 장애 주입 판정: [`QUEUE_DURABILITY.md`](../../docs/performance/QUEUE_DURABILITY.md)

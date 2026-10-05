@@ -17,10 +17,9 @@ import { buildExpectedRequestManifest } from '../lib/consistency.js';
 const { Pool } = pg;
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(toolDirectory, '..', '..');
-const PENDING_QUEUE = 'queue:reservations';
-const PROCESSING_QUEUE = '{queue:reservations}:processing';
-const RETRY_QUEUE = '{queue:reservations}:retry';
-const DLQ = '{queue:reservations}:dlq';
+const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
+const RESERVATION_DLQ_STREAM = '{queue:reservations}:dlq:v1';
+const RESERVATION_CONSUMER_GROUP = 'reservation-workers-v1';
 
 function integerEnvironment(name, fallback, minimum, maximum) {
   const raw = process.env[name] || String(fallback);
@@ -82,6 +81,54 @@ function countForeignMessages(messages, runId) {
     }
   }
   return count;
+}
+
+function pairsToObject(values) {
+  return Object.fromEntries(
+    Array.from({ length: values.length / 2 }, (_, index) => [
+      String(values[index * 2]),
+      values[index * 2 + 1],
+    ]),
+  );
+}
+
+async function readQueueState(redis) {
+  let pending = await redis.xlen(RESERVATION_STREAM);
+  let processing = 0;
+  let retry = 0;
+  try {
+    const groups = await redis.xinfo('GROUPS', RESERVATION_STREAM);
+    const group = groups
+      .map(pairsToObject)
+      .find((candidate) => candidate.name === RESERVATION_CONSUMER_GROUP);
+    if (group) {
+      pending = Number(group.lag || 0);
+      processing = Number(group.pending || 0);
+      if (processing > 0) {
+        const entries = await redis.xpending(
+          RESERVATION_STREAM,
+          RESERVATION_CONSUMER_GROUP,
+          '-',
+          '+',
+          Math.max(processing, 1),
+        );
+        retry = entries.filter((entry) => Number(entry[3]) > 1).length;
+      }
+    }
+  } catch (error) {
+    if (!String(error?.message || error).includes('no such key')) throw error;
+  }
+  return {
+    pending,
+    processing,
+    retry,
+    dlq: await redis.xlen(RESERVATION_DLQ_STREAM),
+  };
+}
+
+async function readStreamPayloads(redis, stream) {
+  const entries = await redis.xrange(stream, '-', '+');
+  return entries.map(([, fields]) => pairsToObject(fields).payload || '');
 }
 
 async function main() {
@@ -182,23 +229,16 @@ async function main() {
     let finalSample = null;
 
     while (Date.now() - started <= timeoutMs) {
-      const [state, counters, pending, processing, retry, dlq] =
-        await Promise.all([
-          redis.hgetall(`${base}state`),
-          redis.hgetall(`${base}counters`),
-          redis.llen(PENDING_QUEUE),
-          redis.llen(PROCESSING_QUEUE),
-          redis.llen(RETRY_QUEUE),
-          redis.llen(DLQ),
-        ]);
+      const [state, counters, queues] = await Promise.all([
+        redis.hgetall(`${base}state`),
+        redis.hgetall(`${base}counters`),
+        readQueueState(redis),
+      ]);
       finalSample = {
         producerState: state.producer || 'UNKNOWN',
         cacheProfileState: state.cache_profile || null,
         counters: numericHash(counters),
-        pending,
-        processing,
-        retry,
-        dlq,
+        ...queues,
         workerInFlight: Number(counters.worker_in_flight || 0),
       };
       const signature = drainSignature(finalSample);
@@ -233,10 +273,8 @@ async function main() {
       redis.hgetall(`${base}failed`),
       redis.hgetall(`${base}requests`),
       Promise.all([
-        redis.lrange(PENDING_QUEUE, 0, -1),
-        redis.lrange(PROCESSING_QUEUE, 0, -1),
-        redis.lrange(RETRY_QUEUE, 0, -1),
-        redis.lrange(DLQ, 0, -1),
+        readStreamPayloads(redis, RESERVATION_STREAM),
+        readStreamPayloads(redis, RESERVATION_DLQ_STREAM),
       ]),
     ]);
     const actualRequests = Object.fromEntries(

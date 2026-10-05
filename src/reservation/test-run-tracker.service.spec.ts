@@ -1,10 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import calculateSlot from 'cluster-key-slot';
 import {
-  RESERVATION_DLQ,
-  RESERVATION_PROCESSING_QUEUE,
-  RESERVATION_QUEUE,
-  RESERVATION_RETRY_QUEUE,
+  RESERVATION_CONSUMER_GROUP,
+  RESERVATION_DLQ_STREAM,
+  RESERVATION_STREAM,
+  RESERVATION_TERMINAL_PREFIX,
   TestRunTrackerService,
 } from './test-run-tracker.service';
 
@@ -30,12 +30,14 @@ describe('TestRunTrackerService', () => {
   function redisMock() {
     const pipeline = {
       eval: jest.fn().mockReturnThis(),
-      rpush: jest.fn().mockReturnThis(),
+      xadd: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue([[null, 1]]),
     };
     return {
       pipeline: jest.fn(() => pipeline),
-      lmove: jest.fn().mockResolvedValue(null),
+      xgroup: jest.fn().mockResolvedValue('OK'),
+      xautoclaim: jest.fn().mockResolvedValue(['0-0', []]),
+      xreadgroup: jest.fn().mockResolvedValue(null),
       pipelineCommands: pipeline,
     };
   }
@@ -69,7 +71,7 @@ describe('TestRunTrackerService', () => {
     expect(redis.pipelineCommands.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('hset', KEYS[2]"),
       3,
-      RESERVATION_QUEUE,
+      RESERVATION_STREAM,
       'k6:tracker-test:run:smoke-run:accepted',
       'k6:tracker-test:run:smoke-run:counters',
       expect.any(String),
@@ -104,25 +106,44 @@ describe('TestRunTrackerService', () => {
     );
   });
 
-  it('claims by atomically moving pending work into processing', async () => {
+  it('claims new work through a consumer group after checking stale work', async () => {
     configureEnvironment();
     const redis = redisMock();
     const service = new TestRunTrackerService(redis as never);
     await service.claimNext();
-    expect(redis.lmove).toHaveBeenCalledWith(
-      RESERVATION_QUEUE,
-      RESERVATION_PROCESSING_QUEUE,
-      'LEFT',
-      'RIGHT',
+    expect(redis.xgroup).toHaveBeenCalledWith(
+      'CREATE',
+      RESERVATION_STREAM,
+      RESERVATION_CONSUMER_GROUP,
+      '0',
+      'MKSTREAM',
+    );
+    expect(redis.xautoclaim).toHaveBeenCalledWith(
+      RESERVATION_STREAM,
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+      30000,
+      '0-0',
+      'COUNT',
+      1,
+    );
+    expect(redis.xreadgroup).toHaveBeenCalledWith(
+      'GROUP',
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+      'COUNT',
+      1,
+      'STREAMS',
+      RESERVATION_STREAM,
+      '>',
     );
   });
 
-  it('keeps every queue key in the pending queue Redis Cluster slot', () => {
+  it('keeps every queue key in one Redis Cluster slot', () => {
     const queueKeys = [
-      RESERVATION_QUEUE,
-      RESERVATION_PROCESSING_QUEUE,
-      RESERVATION_RETRY_QUEUE,
-      RESERVATION_DLQ,
+      RESERVATION_STREAM,
+      RESERVATION_DLQ_STREAM,
+      `${RESERVATION_TERMINAL_PREFIX}reservation-1`,
     ];
 
     expect(new Set(queueKeys.map((key) => calculateSlot(key))).size).toBe(1);

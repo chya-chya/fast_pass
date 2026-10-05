@@ -225,15 +225,22 @@ describe('ReservationService result contract', () => {
       seatId: 'seat-1',
       reservedAt: new Date().toISOString(),
     };
-    const rawData = JSON.stringify(data);
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 1,
+      reclaimed: false,
+    };
     const prisma = {
       $transaction: jest.fn().mockResolvedValue(undefined),
     };
     const tracker = {
-      claimNext: jest.fn().mockResolvedValue(rawData),
+      claimNext: jest.fn().mockResolvedValue(message),
       markProcessingStarted: jest.fn().mockResolvedValue(undefined),
       markSuccess: jest.fn().mockRejectedValue(new Error('redis unavailable')),
       markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
     };
     const processedCounter = {
       inc: jest.fn(),
@@ -253,7 +260,7 @@ describe('ReservationService result contract', () => {
     await expect(service.processNextReservation()).resolves.toBe(false);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tracker.markSuccess).toHaveBeenCalledWith(rawData, data);
+    expect(tracker.markSuccess).toHaveBeenCalledWith(message, data);
     expect(tracker.markFailure).not.toHaveBeenCalled();
     expect(processedCounter.labels).toHaveBeenCalledWith('fail');
     expect(processedCounter.inc).toHaveBeenCalledTimes(1);

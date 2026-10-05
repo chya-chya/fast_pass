@@ -14,6 +14,7 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter } from 'prom-client';
 import {
+  ClaimedReservationMessage,
   TestRunTrackerService,
   TrackedReservationData,
 } from './test-run-tracker.service';
@@ -51,6 +52,12 @@ interface PendingReservation {
 }
 
 const SAFE_RESERVATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+class PermanentQueueMessageError extends Error {
+  constructor(public readonly failureCode: string) {
+    super(failureCode);
+  }
+}
 
 @Injectable()
 export class ReservationService {
@@ -391,85 +398,169 @@ export class ReservationService {
   }
 
   async processNextReservation() {
-    let rawData: string | null = null;
+    let message: ClaimedReservationMessage | null = null;
     let data: ReservationQueueData | undefined;
     let transactionCommitted = false;
     try {
-      rawData = await this.testRunTracker.claimNext();
-      if (!rawData) return false; // Queue empty
+      message = await this.testRunTracker.claimNext();
+      if (!message) return false; // Queue empty
 
-      data = JSON.parse(rawData) as ReservationQueueData;
+      data = this.parseQueueData(message);
       const { userId, seatId, id, reservedAt } = data;
-      await this.testRunTracker.markProcessingStarted(data);
+      await this.testRunTracker.markProcessingStarted(message, data);
 
-      await this.prisma.$transaction(async (tx) => {
-        const seat = await tx.seat.findUnique({ where: { id: seatId } });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const existing = await tx.reservation.findUnique({
+            where: { id },
+          });
+          if (existing) {
+            if (this.matchesQueueData(existing, data!)) return;
+            throw new PermanentQueueMessageError('IDEMPOTENCY_CONFLICT');
+          }
 
-        if (!seat) {
-          throw new NotFoundException('좌석을 찾을 수 없습니다.');
-        }
+          const seat = await tx.seat.findUnique({ where: { id: seatId } });
 
-        if (seat.status !== 'AVAILABLE') {
-          throw new ConflictException('DB: 이미 예약된 좌석입니다.');
-        }
+          if (!seat) {
+            throw new NotFoundException('좌석을 찾을 수 없습니다.');
+          }
 
-        // 좌석 상태 변경 (Optimistic Lock)
-        // updateMany를 사용하여 where 조건에 비고유 필드(version, status)를 포함
-        const { count } = await tx.seat.updateMany({
-          where: {
-            id: seatId,
-            version: seat.version, // 읽어온 버전과 일치해야 함
-            status: 'AVAILABLE',
-          },
-          data: {
-            status: 'HELD',
-            version: { increment: 1 }, // 버전 증가
-          },
+          if (seat.status !== 'AVAILABLE') {
+            throw new ConflictException('DB: 이미 예약된 좌석입니다.');
+          }
+
+          // 좌석 상태 변경 (Optimistic Lock)
+          // updateMany를 사용하여 where 조건에 비고유 필드(version, status)를 포함
+          const { count } = await tx.seat.updateMany({
+            where: {
+              id: seatId,
+              version: seat.version, // 읽어온 버전과 일치해야 함
+              status: 'AVAILABLE',
+            },
+            data: {
+              status: 'HELD',
+              version: { increment: 1 }, // 버전 증가
+            },
+          });
+
+          if (count === 0) {
+            throw new ConflictException(
+              'DB: 좌석 선점 실패 (Optimistic Lock Collision)',
+            );
+          }
+
+          // 예약 생성
+
+          await tx.reservation.create({
+            data: {
+              id, // Use UUID from Redis
+              userId,
+              seatId,
+              status: 'PENDING',
+              reservedAt: new Date(reservedAt), // Preserve timestamp
+            },
+          });
+
+          // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
+          // 별도 스케줄러가 주기적으로 동기화함
         });
-
-        if (count === 0) {
-          throw new ConflictException(
-            'DB: 좌석 선점 실패 (Optimistic Lock Collision)',
-          );
+      } catch (error) {
+        if (error instanceof PermanentQueueMessageError) throw error;
+        const existing = await this.prisma.reservation
+          .findUnique({ where: { id } })
+          .catch(() => null);
+        if (!existing) throw error;
+        if (!this.matchesQueueData(existing, data)) {
+          throw new PermanentQueueMessageError('IDEMPOTENCY_CONFLICT');
         }
-
-        // 예약 생성
-
-        await tx.reservation.create({
-          data: {
-            id, // Use UUID from Redis
-            userId,
-            seatId,
-            status: 'PENDING',
-            reservedAt: new Date(reservedAt), // Preserve timestamp
-          },
-        });
-
-        // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
-        // 별도 스케줄러가 주기적으로 동기화함
-      });
+      }
       transactionCommitted = true;
 
-      await this.testRunTracker.markSuccess(rawData, data);
+      await this.testRunTracker.markSuccess(message, data);
       console.log(`Processed reservation ${id} for seat ${seatId}`);
       this.processedCounter.labels('success').inc();
       return true; // Processed one
     } catch (error) {
-      // Redis lpop 실패 혹은 트랜잭션 실패 시
+      // Redis stream claim 또는 DB transaction 실패 시
       console.error('Failed to process reservation');
       this.processedCounter.labels('fail').inc();
-      if (rawData && !transactionCommitted) {
-        const failureCode =
+      if (message && !transactionCommitted) {
+        const failureCode = this.queueFailureCode(error);
+        const maxDeliveries = this.maxQueueDeliveries();
+        if (
+          error instanceof PermanentQueueMessageError ||
           error instanceof ConflictException ||
-          error instanceof NotFoundException
-            ? 'DOMAIN_REJECTION'
-            : 'PROCESSING_ERROR';
-        await this.testRunTracker
-          .markFailure(rawData, data, failureCode)
-          .catch(() => undefined);
+          error instanceof NotFoundException ||
+          message.deliveryCount >= maxDeliveries
+        ) {
+          await this.testRunTracker
+            .markFailure(message, data, failureCode)
+            .catch(() => undefined);
+        } else {
+          await this.testRunTracker
+            .markRetry(message, data, failureCode)
+            .catch(() => undefined);
+        }
       }
       return false;
     }
+  }
+
+  private parseQueueData(
+    message: ClaimedReservationMessage,
+  ): ReservationQueueData {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(message.payload);
+    } catch {
+      throw new PermanentQueueMessageError('POISON_MESSAGE');
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new PermanentQueueMessageError('POISON_MESSAGE');
+    }
+    const data = parsed as Partial<ReservationQueueData>;
+    if (
+      typeof data.id !== 'string' ||
+      !SAFE_RESERVATION_ID.test(data.id) ||
+      (message.reservationId !== undefined &&
+        message.reservationId !== data.id) ||
+      typeof data.userId !== 'string' ||
+      data.userId.length === 0 ||
+      typeof data.seatId !== 'string' ||
+      data.seatId.length === 0 ||
+      typeof data.reservedAt !== 'string' ||
+      !Number.isFinite(Date.parse(data.reservedAt))
+    ) {
+      throw new PermanentQueueMessageError('POISON_MESSAGE');
+    }
+    return data as ReservationQueueData;
+  }
+
+  private matchesQueueData(
+    existing: { userId: string; seatId: string; reservedAt: Date },
+    data: ReservationQueueData,
+  ): boolean {
+    return (
+      existing.userId === data.userId &&
+      existing.seatId === data.seatId &&
+      existing.reservedAt.getTime() === new Date(data.reservedAt).getTime()
+    );
+  }
+
+  private maxQueueDeliveries(): number {
+    const configured = Number(process.env.RESERVATION_MAX_DELIVERIES || 3);
+    return Number.isInteger(configured) && configured > 0 ? configured : 3;
+  }
+
+  private queueFailureCode(error: unknown): string {
+    if (error instanceof PermanentQueueMessageError) return error.failureCode;
+    if (
+      error instanceof ConflictException ||
+      error instanceof NotFoundException
+    ) {
+      return 'DOMAIN_REJECTION';
+    }
+    return 'PROCESSING_ERROR';
   }
 
   private assertReservationId(reservationId: string) {

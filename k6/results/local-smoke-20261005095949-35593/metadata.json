@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261005095949-35593",
+  "scenario": "smoke",
+  "startedAt": "2026-10-05T09:59:56.779Z",
+  "finishedAt": "2026-10-05T10:00:05.255Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-05T09:59:56.975Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "a62d97d7f9c344130e182feb8ac49b698bfd62d7",
+    "gitDirty": true,
+    "scriptSha256": "7d7321f5fed4a82571b7c910107627749c902522c5342e23b4ad7f04f7dbd66b"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:59080",
+    "runId": "local-smoke-20261005095949-35593",
+    "scenario": "smoke",
+    "scriptPath": "k6/scenarios/smoke.js",
+    "vus": 1,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 1,
+    "seatCount": 5,
+    "cacheProfile": "warm",
+    "executor": "per-vu-iterations",
+    "iterationsPerVu": 1,
+    "totalIterations": 1,
+    "totalRequests": 1,
+    "requestsPerSeat": 0.2,
+    "expectedAccepted": 1,
+    "expectedConflicts": 0,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100509594935593",
+    "testDatabaseName": "fast_pass_k6_k6int2026100509594935593",
+    "testRedisId": "redis-k6int2026100509594935593",
+    "redisKeyPrefix": "k6:k6int2026100509594935593:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "4c19dac354d7081de6218604a3dc3d25f87948dd",
+    "expectedMigrationId": "20261002082100_drop_legacy_reservation_seat_unique",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-smoke-20261005095949-35593",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}

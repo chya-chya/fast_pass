@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261005095949-35593",
+  "window": {
+    "startedAt": "2026-10-05T09:59:56.779Z",
+    "endedAt": "2026-10-05T10:00:05.214Z"
+  },
+  "app": {
+    "status": "unavailable",
+    "reason": "no per-run application metrics collector was configured",
+    "sourceUri": null
+  },
+  "database": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connections": 3,
+      "transactionsCommitted": "87",
+      "transactionsRolledBack": "0"
+    }
+  },
+  "redis": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connected_clients": 2,
+      "used_memory": 1721816,
+      "instantaneous_ops_per_sec": 57,
+      "evicted_keys": 0
+    }
+  }
+}
