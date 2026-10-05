@@ -102,7 +102,6 @@ terminal-failure/DLQ/PEL = {}
 - queue durability disposable integration: 7/7 통과
 - rebooking disposable integration: 2/2 통과
 - 실제 앱 Smoke + artifact finalize + ID audit: 통과
-- queue drain/ID audit Node test: 통과
+- reservation 전체 Jest: 34개 통과, 9개 조건부 통합 테스트 skip
+- queue drain/ID audit Node test: 38/38 통과
 - Compose 설정 및 shell/JavaScript 문법 검사: 통과
-
-전체 reservation Jest 패턴은 샌드박스 내부에서 HTTP listen이 금지되어 API contract suite가 `EPERM`으로 실패했다. 같은 suite는 기존 코드와 동일하게 로컬 포트를 필요로 하며, 이번 큐 변경과 직접 관련된 service contract, tracker, lifecycle 및 disposable 통합 경로는 별도로 통과했다.
