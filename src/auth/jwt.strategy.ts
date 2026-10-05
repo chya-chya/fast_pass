@@ -5,7 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 interface Payload {
-  sub: number;
+  sub: string;
   email: string;
 }
 

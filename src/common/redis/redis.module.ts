@@ -2,6 +2,12 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
+export function redisClusterTlsOptions(verifyHostname?: string) {
+  return verifyHostname === 'true'
+    ? {}
+    : { checkServerIdentity: () => undefined };
+}
+
 @Global()
 @Module({
   imports: [ConfigModule],
@@ -15,17 +21,20 @@ import Redis from 'ioredis';
           configService.get<string>('REDIS_CLUSTER_MODE') === 'true';
         const useTls = configService.get<string>('REDIS_USE_TLS') !== 'false'; // Default to true if not specified
         const host = configService.get<string>('REDIS_HOST');
-        const port = configService.get<number>('REDIS_PORT');
+        const port = Number(configService.get<string>('REDIS_PORT'));
+        const verifyClusterHostname = configService.get<string>(
+          'REDIS_TLS_VERIFY_HOSTNAME',
+        );
 
-        console.log(`[RedisModule] Connecting to Cluster ${host}:${port}, TLS: ${useTls}`);
+        if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+          throw new Error('Redis host and port must be configured');
+        }
 
         if (isCluster) {
           return new Redis.Cluster([{ host, port }], {
             redisOptions: {
               tls: useTls
-                ? {
-                    checkServerIdentity: () => undefined, // Bypass hostname verification for AWS ElastiCache
-                  }
+                ? redisClusterTlsOptions(verifyClusterHostname)
                 : undefined,
               // AWS ElastiCache DNS fix: prevent ioredis from re-resolving IPs
               dnsLookup: (address, callback) => callback(null, address),
@@ -36,7 +45,7 @@ import Redis from 'ioredis';
         return new Redis({
           host,
           port,
-          tls: {},
+          tls: useTls ? {} : undefined,
           // 커넥션 유지 및 자동 재연결 설정
           retryStrategy: (times) => Math.min(times * 50, 2000),
           reconnectOnError: (err) => {

@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-one-seat-20261002071430-67538",
+  "testEnvId": "k6int2026100207143067538",
+  "performanceId": "cmuqmo59n0005bv7toxvl5s7e",
+  "auditedAt": "2026-10-02T07:14:40.051Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1046
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 4,
+    "enqueue": 1,
+    "processingStarted": 1,
+    "processedSuccess": 1,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 1,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-consistency-one-seat-20261002071430-67538-req-000003"
+    ],
+    "acceptedReservationIds": [
+      "8da1b6cc-54bf-44c4-b9e4-e8547bb0e937"
+    ],
+    "processedReservationIds": [
+      "8da1b6cc-54bf-44c4-b9e4-e8547bb0e937"
+    ],
+    "persistedReservationIds": [
+      "8da1b6cc-54bf-44c4-b9e4-e8547bb0e937"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 4,
+    "actualCount": 4,
+    "expectedAccepted": 1,
+    "actualAccepted": 1,
+    "expectedConflicts": 3,
+    "actualConflicts": 0,
+    "expectedRequestsPerSeat": {
+      "cmuqmo59q0006bv7tqztwm5gq": 4
+    },
+    "actualRequestsPerSeat": {
+      "cmuqmo59q0006bv7tqztwm5gq": 4
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "consistency": {
+    "pass": false,
+    "reasons": [
+      "EXPECTED_CONFLICT_MISMATCH",
+      "UNEXPECTED_ERROR_OBSERVED"
+    ]
+  }
+}

@@ -63,9 +63,9 @@ model Seat {
   // 낙관적 락(Optimistic Lock)을 위한 필드: Raw Query 최적화 시 활용 [cite: 95]
   version Int @default(0)
 
-  reservation Reservation?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@unique([performanceId, seatNumber]) // 중복 예약 방지 제약
   @@index([performanceId, status]) // 예약 가능 좌석 필터링 성능 향상
@@ -76,7 +76,7 @@ model Reservation {
   id         String            @id @default(cuid())
   userId     String
   user       User              @relation(fields: [userId], references: [id])
-  seatId     String            @unique
+  seatId     String
   seat       Seat              @relation(fields: [seatId], references: [id])
   status     ReservationStatus @default(PENDING)
   reservedAt DateTime          @default(now())

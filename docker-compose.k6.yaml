@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: k6
+      POSTGRES_PASSWORD: ${K6_DB_PASSWORD:?K6_DB_PASSWORD is required}
+      POSTGRES_DB: ${TEST_DATABASE_NAME:?TEST_DATABASE_NAME is required}
+    ports:
+      - '127.0.0.1:${K6_POSTGRES_PORT:?K6_POSTGRES_PORT is required}:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--protected-mode',
+        'no',
+      ]
+    ports:
+      - '127.0.0.1:${K6_REDIS_PORT:?K6_REDIS_PORT is required}:6379'
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 1s
+      timeout: 3s
+      retries: 30

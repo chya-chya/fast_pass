@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-rebooking-20261002100107-80347",
+  "testEnvId": "k6int2026100210010780347",
+  "performanceId": "cmuqsmdyp00029o7tupte7iew",
+  "auditedAt": "2026-10-02T10:01:15.927Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1153
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 2,
+    "enqueue": 2,
+    "processingStarted": 2,
+    "processedSuccess": 2,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 2,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [
+      {
+        "seatId": "cmuqsmdyr00039o7thacem3lb",
+        "count": 2
+      }
+    ],
+    "duplicateActiveSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1,
+      "CANCELLED": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-rebooking-20261002100107-80347-req-first",
+      "local-rebooking-20261002100107-80347-req-second"
+    ],
+    "acceptedReservationIds": [
+      "07be287b-23cd-420b-acfb-614750d48ebd",
+      "3d61a4c5-7399-4c9d-a0ae-bf431bbcd0a1"
+    ],
+    "processedReservationIds": [
+      "07be287b-23cd-420b-acfb-614750d48ebd",
+      "3d61a4c5-7399-4c9d-a0ae-bf431bbcd0a1"
+    ],
+    "persistedReservationIds": [
+      "07be287b-23cd-420b-acfb-614750d48ebd",
+      "3d61a4c5-7399-4c9d-a0ae-bf431bbcd0a1"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 2,
+    "actualCount": 2,
+    "expectedAccepted": 2,
+    "actualAccepted": 2,
+    "expectedConflicts": 0,
+    "actualConflicts": 0,
+    "expectedRequestsPerSeat": {
+      "cmuqsmdyr00039o7thacem3lb": 2
+    },
+    "actualRequestsPerSeat": {
+      "cmuqsmdyr00039o7thacem3lb": 2
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "rebooking": {
+    "firstRequestId": "local-rebooking-20261002100107-80347-req-first",
+    "secondRequestId": "local-rebooking-20261002100107-80347-req-second",
+    "firstReservationId": "07be287b-23cd-420b-acfb-614750d48ebd",
+    "secondReservationId": "3d61a4c5-7399-4c9d-a0ae-bf431bbcd0a1",
+    "firstStatus": "CANCELLED",
+    "secondStatus": "PENDING",
+    "finalSeatStatus": "HELD",
+    "finalRedisStatus": "HELD",
+    "historyCount": 2,
+    "activeCount": 1
+  },
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

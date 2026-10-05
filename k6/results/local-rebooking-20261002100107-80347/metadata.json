@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-rebooking-20261002100107-80347",
+  "scenario": "rebooking",
+  "startedAt": "2026-10-02T10:01:14.098Z",
+  "finishedAt": "2026-10-02T10:01:15.982Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-02T10:01:14.305Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "9bac7e71a383de859a7c6bb2cdae966a7034c66b",
+    "gitDirty": true,
+    "scriptSha256": "465f407c6de12bcfa088b88c71703b8ce2f937d3f1f4a46a27d764728ca21287"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:63548",
+    "runId": "local-rebooking-20261002100107-80347",
+    "scenario": "rebooking",
+    "scriptPath": "k6/scenarios/rebooking.js",
+    "vus": 1,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 1,
+    "seatCount": 1,
+    "cacheProfile": "warm",
+    "executor": "per-vu-iterations",
+    "iterationsPerVu": 1,
+    "totalIterations": 1,
+    "totalRequests": 2,
+    "requestsPerSeat": 2,
+    "expectedAccepted": 2,
+    "expectedConflicts": 0,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100210010780347",
+    "testDatabaseName": "fast_pass_k6_k6int2026100210010780347",
+    "testRedisId": "redis-k6int2026100210010780347",
+    "redisKeyPrefix": "k6:k6int2026100210010780347:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "ee9b3c832c8b60ba0afd279e1b85eb38a9f521c3",
+    "expectedMigrationId": "20261002082000_rebooking_history",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-rebooking-20261002100107-80347",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}

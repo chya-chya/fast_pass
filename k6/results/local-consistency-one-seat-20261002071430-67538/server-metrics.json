@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-one-seat-20261002071430-67538",
+  "window": {
+    "startedAt": "2026-10-02T07:14:37.889Z",
+    "endedAt": "2026-10-02T07:14:40.055Z"
+  },
+  "app": {
+    "status": "unavailable",
+    "reason": "no per-run application metrics collector was configured",
+    "sourceUri": null
+  },
+  "database": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connections": 2,
+      "transactionsCommitted": "65",
+      "transactionsRolledBack": "0"
+    }
+  },
+  "redis": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connected_clients": 2,
+      "used_memory": 1688312,
+      "instantaneous_ops_per_sec": 108,
+      "evicted_keys": 0
+    }
+  }
+}

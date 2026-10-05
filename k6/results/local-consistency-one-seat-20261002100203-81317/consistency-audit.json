@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-one-seat-20261002100203-81317",
+  "testEnvId": "k6int2026100210020381317",
+  "performanceId": "cmuqsnlvo0005x57tsq3gnajc",
+  "auditedAt": "2026-10-02T10:02:12.713Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1157
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 4,
+    "enqueue": 1,
+    "processingStarted": 1,
+    "processedSuccess": 1,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 1,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [],
+    "duplicateActiveSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-consistency-one-seat-20261002100203-81317-req-000001"
+    ],
+    "acceptedReservationIds": [
+      "08ab1ef7-99b8-43a3-9f50-de89a7be5052"
+    ],
+    "processedReservationIds": [
+      "08ab1ef7-99b8-43a3-9f50-de89a7be5052"
+    ],
+    "persistedReservationIds": [
+      "08ab1ef7-99b8-43a3-9f50-de89a7be5052"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 4,
+    "actualCount": 4,
+    "expectedAccepted": 1,
+    "actualAccepted": 1,
+    "expectedConflicts": 3,
+    "actualConflicts": 3,
+    "expectedRequestsPerSeat": {
+      "cmuqsnlvq0006x57tt01odh0t": 4
+    },
+    "actualRequestsPerSeat": {
+      "cmuqsnlvq0006x57tt01odh0t": 4
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "rebooking": null,
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

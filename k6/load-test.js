@@ -1,6 +1,10 @@
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
-import { randomString } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
+import {
+  assertLegacyEnvironment,
+  LOCAL_BASE_URL,
+  randomString,
+} from './lib/legacy-safety.js';
 
 export const options = {
   stages: [
@@ -15,9 +19,10 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)'],
 };
 
-const BASE_URL = 'http://fast-pass-apl-1011026839.ap-northeast-2.elb.amazonaws.com';
+const BASE_URL = __ENV.BASE_URL || LOCAL_BASE_URL;
 
 export function setup() {
+  assertLegacyEnvironment(__ENV);
   console.log('Running Setup...');
   
   // 1. Host User Registration & Login
@@ -131,4 +136,4 @@ export default function (data) {
   sleep(0.1); // Short sleep to simulate high RPS
 }
 
-//   K6_WEB_DASHBOARD=true k6 run k6/load-test.js
+// See README.md for the required disposable-environment safety variables.

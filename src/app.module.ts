@@ -20,6 +20,7 @@ import 'winston-daily-rotate-file';
 import 'winston-mongodb';
 
 import { ScheduleModule } from '@nestjs/schedule';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     SeatModule,
     ReservationModule,
     RedisModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-rebooking-20261002100107-80347",
+  "testEnvId": "k6int2026100210010780347",
+  "userIds": [
+    "cmuqsmduy00009o7tmfhx09yz"
+  ],
+  "eventIds": [
+    "cmuqsmdyf00019o7t5lp87ekz"
+  ],
+  "performanceIds": [
+    "cmuqsmdyp00029o7tupte7iew"
+  ],
+  "seatIds": [
+    "cmuqsmdyr00039o7thacem3lb"
+  ],
+  "requestIds": [
+    "local-rebooking-20261002100107-80347-req-first",
+    "local-rebooking-20261002100107-80347-req-second"
+  ],
+  "reservationIds": [
+    "07be287b-23cd-420b-acfb-614750d48ebd",
+    "3d61a4c5-7399-4c9d-a0ae-bf431bbcd0a1"
+  ],
+  "scenario": "rebooking",
+  "cacheProfile": "warm",
+  "requestManifest": {
+    "schemaVersion": 1,
+    "totalRequests": 2,
+    "assignment": "rebooking_sequence"
+  },
+  "expectedAccepted": 2,
+  "expectedConflicts": 0,
+  "requestsPerSeat": 2,
+  "counts": {
+    "users": 1,
+    "events": 1,
+    "performances": 1,
+    "seats": 1,
+    "acceptedReservations": 2,
+    "requestAttempts": 2
+  }
+}

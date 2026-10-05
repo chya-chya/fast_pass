@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261001080048-38196",
+  "testEnvId": "phase2int2026100108004838196",
+  "performanceId": "cmup8vwi70002le7tnoz55e73",
+  "auditedAt": "2026-10-01T08:01:05.161Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1047
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "enqueue": 1,
+    "processingStarted": 1,
+    "processedSuccess": 1,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 1,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [],
+    "seatStatusDistribution": {
+      "AVAILABLE": 4,
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-smoke-20261001080048-38196-req-0"
+    ],
+    "acceptedReservationIds": [
+      "f45f21d4-9199-4077-8be0-46d0208e2c2a"
+    ],
+    "processedReservationIds": [
+      "f45f21d4-9199-4077-8be0-46d0208e2c2a"
+    ],
+    "persistedReservationIds": [
+      "f45f21d4-9199-4077-8be0-46d0208e2c2a"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

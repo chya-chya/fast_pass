@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-inventory-20261002071357-67114",
+  "window": {
+    "startedAt": "2026-10-02T07:14:04.560Z",
+    "endedAt": "2026-10-02T07:14:06.725Z"
+  },
+  "app": {
+    "status": "unavailable",
+    "reason": "no per-run application metrics collector was configured",
+    "sourceUri": null
+  },
+  "database": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connections": 2,
+      "transactionsCommitted": "66",
+      "transactionsRolledBack": "0"
+    }
+  },
+  "redis": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "summary": {
+      "connected_clients": 2,
+      "used_memory": 1646592,
+      "instantaneous_ops_per_sec": 110,
+      "evicted_keys": 0
+    }
+  }
+}

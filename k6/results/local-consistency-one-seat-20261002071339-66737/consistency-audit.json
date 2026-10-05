@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-consistency-one-seat-20261002071339-66737",
+  "testEnvId": "k6int2026100207133966737",
+  "performanceId": "cmuqmn1fc0005ot7t6ug8da3h",
+  "auditedAt": "2026-10-02T07:13:48.524Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1168
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 4,
+    "enqueue": 1,
+    "processingStarted": 1,
+    "processedSuccess": 1,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 1,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-consistency-one-seat-20261002071339-66737-req-000002"
+    ],
+    "acceptedReservationIds": [
+      "4a3d0a67-388d-4cdb-9d4f-462040f1408a"
+    ],
+    "processedReservationIds": [
+      "4a3d0a67-388d-4cdb-9d4f-462040f1408a"
+    ],
+    "persistedReservationIds": [
+      "4a3d0a67-388d-4cdb-9d4f-462040f1408a"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 4,
+    "actualCount": 4,
+    "expectedAccepted": 1,
+    "actualAccepted": 1,
+    "expectedConflicts": 3,
+    "actualConflicts": 3,
+    "expectedRequestsPerSeat": {
+      "cmuqmn1fg0006ot7tw69avbcp": 4
+    },
+    "actualRequestsPerSeat": {
+      "cmuqmn1fg0006ot7tw69avbcp": 4
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

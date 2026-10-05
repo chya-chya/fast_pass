@@ -4,6 +4,10 @@ on:
   push:
     branches: ['main']
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,7 +30,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:${{ github.sha }}
           platforms: linux/amd64
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:buildcache,mode=max
@@ -42,7 +48,11 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -euo pipefail
             cd /home/ec2-user/fast_pass
-            git pull
+            git fetch --prune origin
+            git checkout --detach "${{ github.sha }}"
+            export APP_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/fast_pass:${{ github.sha }}"
             docker compose -f docker-compose.prod.yaml pull
+            docker compose -f docker-compose.prod.yaml run --rm --no-deps app ./node_modules/.bin/prisma migrate deploy
             docker compose -f docker-compose.prod.yaml up -d

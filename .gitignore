@@ -58,3 +58,10 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /generated/prisma
 
 /portfolio
+
+# k6 transient or high-volume output (small finalized run artifacts are retained)
+k6/results/**/dashboard.html
+k6/results/**/raw-*
+k6/results/**/*.ndjson
+k6/results/**/*.csv
+k6/results/**/.*

@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
 # Install all dependencies (including devDependencies for build)
 RUN npm ci
@@ -28,11 +29,15 @@ WORKDIR /app
 # Install production dependencies only
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
 # Install build dependencies again for potential native module rebuilds in prod deps
 RUN apk add --no-cache python3 make g++
 
 RUN npm ci --only=production
+
+# Keep the migration CLI and config in the final image for pre-rollout deploys.
+RUN test -x ./node_modules/.bin/prisma
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist

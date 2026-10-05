@@ -3,6 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
+export function databaseSslRejectUnauthorized(value?: string): boolean {
+  return value === 'true';
+}
+
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -10,9 +14,31 @@ export class PrismaService
 {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
-    const isLocal =
-      connectionString?.includes('localhost') ||
-      connectionString?.includes('127.0.0.1');
+    if (!connectionString) {
+      throw new Error('DATABASE_URL is required');
+    }
+
+    let hostname: string;
+    try {
+      hostname = new URL(connectionString).hostname.toLowerCase();
+    } catch (_) {
+      throw new Error('DATABASE_URL is invalid');
+    }
+
+    const configuredSslMode = process.env.DB_SSL_MODE;
+    if (
+      configuredSslMode !== undefined &&
+      !['disable', 'require'].includes(configuredSslMode)
+    ) {
+      throw new Error('DB_SSL_MODE must be disable or require');
+    }
+    const inferredLocal =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === 'db';
+    const sslMode =
+      configuredSslMode || (inferredLocal ? 'disable' : 'require');
 
     const poolConfig: any = {
       connectionString,
@@ -21,11 +47,13 @@ export class PrismaService
       connectionTimeoutMillis: 5000,
     };
 
-    if (isLocal) {
+    if (sslMode === 'disable') {
       poolConfig.ssl = false;
     } else {
       poolConfig.ssl = {
-        rejectUnauthorized: false,
+        rejectUnauthorized: databaseSslRejectUnauthorized(
+          process.env.DB_SSL_REJECT_UNAUTHORIZED,
+        ),
       };
     }
 
