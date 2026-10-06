@@ -15,6 +15,7 @@ import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter } from 'prom-client';
 import {
   ClaimedReservationMessage,
+  ReservationClaimOwnershipError,
   TestRunTrackerService,
   TrackedReservationData,
 } from './test-run-tracker.service';
@@ -409,9 +410,28 @@ export class ReservationService {
       message = await this.testRunTracker.claimNext();
       if (!message) return false; // Queue empty
 
+      const terminalDecision =
+        await this.testRunTracker.terminalDecision(message);
+      if (terminalDecision) {
+        try {
+          data = this.parseQueueData(message);
+        } catch {
+          data = undefined;
+        }
+        await this.testRunTracker.assertClaimOwnership(message);
+        await this.testRunTracker.resumeFinalization(
+          message,
+          data,
+          terminalDecision,
+        );
+        return terminalDecision.status === 'SUCCESS';
+      }
+
       data = this.parseQueueData(message);
       const { userId, seatId, id, reservedAt } = data;
       await this.testRunTracker.markProcessingStarted(message, data);
+      const stopClaimHeartbeat =
+        this.testRunTracker.startClaimHeartbeat(message);
 
       try {
         await this.prisma.$transaction(async (tx) => {
@@ -419,7 +439,10 @@ export class ReservationService {
             where: { id },
           });
           if (existing) {
-            if (this.matchesQueueData(existing, data!)) return;
+            if (this.matchesQueueData(existing, data!)) {
+              await this.testRunTracker.assertClaimOwnership(message!);
+              return;
+            }
             throw new PermanentQueueMessageError('IDEMPOTENCY_CONFLICT');
           }
 
@@ -467,9 +490,15 @@ export class ReservationService {
 
           // 잔여 좌석 감소 로직 제거 (Performance 테이블 락 방지)
           // 별도 스케줄러가 주기적으로 동기화함
+          await this.testRunTracker.assertClaimOwnership(message!);
         });
       } catch (error) {
-        if (error instanceof PermanentQueueMessageError) throw error;
+        if (
+          error instanceof PermanentQueueMessageError ||
+          error instanceof ReservationClaimOwnershipError
+        ) {
+          throw error;
+        }
         let existing;
         try {
           existing = await this.prisma.reservation.findUnique({
@@ -482,6 +511,8 @@ export class ReservationService {
         if (!this.matchesQueueData(existing, data)) {
           throw new PermanentQueueMessageError('IDEMPOTENCY_CONFLICT');
         }
+      } finally {
+        await stopClaimHeartbeat();
       }
       transactionCommitted = true;
 
@@ -493,7 +524,13 @@ export class ReservationService {
       // Redis stream claim 또는 DB transaction 실패 시
       console.error('Failed to process reservation');
       this.processedCounter.labels('fail').inc();
+      if (error instanceof ReservationClaimOwnershipError) return false;
       if (message && !transactionCommitted) {
+        try {
+          await this.testRunTracker.assertClaimOwnership(message);
+        } catch {
+          return false;
+        }
         const failureCode = this.queueFailureCode(error);
         const maxDeliveries = this.maxQueueDeliveries();
         if (error instanceof QueueOutcomeUnknownError) {
@@ -546,7 +583,22 @@ export class ReservationService {
     ) {
       throw new PermanentQueueMessageError('POISON_MESSAGE');
     }
-    return data as ReservationQueueData;
+    let tracking: Pick<ReservationQueueData, 'runId' | 'requestId'>;
+    try {
+      if (
+        (data.runId !== undefined && typeof data.runId !== 'string') ||
+        (data.requestId !== undefined && typeof data.requestId !== 'string')
+      ) {
+        throw new Error('invalid tracking data');
+      }
+      tracking = this.testRunTracker.normalizeQueueTracking(
+        data.runId,
+        data.requestId,
+      );
+    } catch {
+      throw new PermanentQueueMessageError('POISON_MESSAGE');
+    }
+    return { ...(data as ReservationQueueData), ...tracking };
   }
 
   private matchesQueueData(

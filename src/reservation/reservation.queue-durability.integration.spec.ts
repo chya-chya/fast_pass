@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReservationService } from './reservation.service';
 import {
   ClaimedReservationMessage,
+  ReservationClaimOwnershipError,
   RESERVATION_CONSUMER_GROUP,
   RESERVATION_DLQ_STREAM,
   RESERVATION_STREAM,
@@ -444,6 +445,43 @@ integrationDescribe('Reservation queue durability integration', () => {
       item,
       'TEST_CLEANUP',
     );
+  });
+
+  it('prevents a stale worker from finalizing after another worker reclaims', async () => {
+    const item = makeItem('stale-finalizer');
+    await tracker.enqueue(item);
+    const staleClaim = await tracker.claimNext();
+    expect(staleClaim).not.toBeNull();
+    await waitForReclaim();
+
+    const replacementTracker = new TestRunTrackerService(redis);
+    const replacementClaim = await replacementTracker.claimNext();
+    expect(replacementClaim).toMatchObject({
+      reservationId: item.id,
+      deliveryCount: 2,
+      reclaimed: true,
+    });
+
+    await expect(
+      tracker.markFailure(staleClaim!, undefined, 'STALE_WORKER'),
+    ).rejects.toBeInstanceOf(ReservationClaimOwnershipError);
+    await expect(dlqFields()).resolves.toEqual([]);
+    await expect(groupState()).resolves.toMatchObject({
+      processing: 1,
+      dlq: 0,
+    });
+
+    await replacementTracker.markFailure(
+      replacementClaim!,
+      undefined,
+      'TEST_CLEANUP',
+    );
+    await expect(groupState()).resolves.toEqual({
+      pending: 0,
+      processing: 0,
+      retry: 0,
+      dlq: 1,
+    });
   });
 
   it('conserves accepted IDs across DB success and terminal failure', async () => {

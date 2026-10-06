@@ -16,16 +16,18 @@ DB commit 후 `XACK` 전에 worker가 종료되어 같은 메시지가 다시 �
 producer: XADD {queue:reservations}:stream:v1
 consumer: XREADGROUP reservation-workers-v1 <unique-consumer> ... >
 recovery: XAUTOCLAIM after RESERVATION_RECLAIM_IDLE_MS
-success: DB commit/reconcile -> XACK + XDEL
+active claim: heartbeat + commit 직전 owner 확인
+success: DB commit/reconcile -> owner-fenced XACK + XDEL
 transient failure: PEL 유지 -> stale claim으로 재전달
-permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
+permanent/max-delivery failure: owner-fenced DLQ XADD -> source XACK + XDEL
 ```
 
 - 기본 stale claim 기준: `RESERVATION_RECLAIM_IDLE_MS=30000`
 - 기본 최대 delivery: `RESERVATION_MAX_DELIVERIES=3`
 - consumer 이름: host, PM2 instance, PID, 난수 suffix 조합
 - DLQ 필드: source stream ID, reservation ID, delivery count, failure code, 원본 payload
-- terminal marker: reservation ID와 source stream ID 조합별 성공·실패 종결을 24시간 보존해 같은 delivery의 중복 ack/DLQ 기록을 막는다.
+- terminal marker: reservation ID와 source stream ID 조합별 성공·실패 결정을 ACK까지 보존하고, `XACK`·`XDEL`과 같은 Lua 작업에서 삭제해 crash recovery와 정상 처리 시 key 정리를 함께 보장한다.
+- terminal 생성과 ACK는 같은 Lua 작업 안에서 PEL owner를 확인한다. 이미 다른 consumer가 회수한 메시지는 이전 worker가 종결하거나 삭제할 수 없다.
 - poison payload, 없는 좌석, 활성 좌석 충돌, reservation ID/payload 불일치는 재시도하지 않는다.
 - 일반 DB 오류는 PEL에 남겨 제한 횟수만큼 다시 전달하고, 한도를 넘으면 DLQ로 이동한다.
 - transaction 오류 뒤 reservation ID 화해 조회도 실패해 commit 결과를 알 수 없는 경우에는 `OUTCOME_UNKNOWN`으로 분류한다. 이 상태는 delivery 한도를 넘겨도 ACK/DLQ하지 않고, DB 결과를 확인할 수 있을 때까지 PEL에 보존한다.
@@ -37,7 +39,7 @@ permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
 - 테스트: `src/reservation/reservation.queue-durability.integration.spec.ts`
 - 실행: `RUN_QUEUE_DURABILITY_INTEGRATION=true k6/tools/run-local-integration.sh smoke`
 - 환경: 실행마다 새로 생성한 loopback 전용 PostgreSQL·Redis, tmpfs 데이터, 종료 시 컨테이너·볼륨 삭제
-- 결과: **7/7 통과**, 종료 코드 0
+- 결과: **8/8 통과**, 종료 코드 0
 
 | 시나리오                 | 확인 결과                                                                                            |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -47,6 +49,7 @@ permanent/max-delivery failure: DLQ XADD -> source XACK + XDEL
 | 최대 delivery 초과       | 3번째 실패에서 delivery count와 오류 코드를 포함해 DLQ 이동                                          |
 | poison message           | 첫 delivery에서 `POISON_MESSAGE` DLQ 이동, DB 접근 없음                                              |
 | 복수 worker reclaim 경쟁 | 3개 consumer가 동시에 회수해도 동일 stream ID를 한 consumer만 획득                                   |
+| stale worker 종결 경쟁   | 다른 consumer가 회수한 뒤에는 이전 worker의 terminal 생성·ACK가 거부됨                               |
 | ID 보존                  | accepted IDs가 processed-success와 terminal-failure의 합집합과 정확히 일치하고 DB에는 성공 ID만 존재 |
 
 재예약 통합 테스트도 같은 방식의 disposable 환경에서 **2/2 통과**했다. 취소 또는 만료 뒤 같은 좌석을 새 reservation ID로 다시 예약할 수 있고, 활성 예약은 좌석당 한 건만 유지됐다.
@@ -99,10 +102,10 @@ terminal-failure/DLQ/PEL = {}
 
 - `git diff --check`: 통과
 - `npm run build`: 통과
-- tracker/service focused Jest: 16/16 통과
-- queue durability disposable integration: 7/7 통과
+- tracker/service focused Jest: 35/35 통과
+- queue durability disposable integration: 8/8 통과
 - rebooking disposable integration: 2/2 통과
 - 실제 앱 Smoke + artifact finalize + ID audit: 통과
-- reservation 전체 Jest: 36개 통과, 9개 조건부 통합 테스트 skip
+- reservation 전체 Jest: 47개 통과, 10개 조건부 통합 테스트 skip
 - queue drain/ID audit Node test: 38/38 통과
 - Compose 설정 및 shell/JavaScript 문법 검사: 통과

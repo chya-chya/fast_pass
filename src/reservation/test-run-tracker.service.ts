@@ -19,6 +19,17 @@ export type ClaimedReservationMessage = {
   reclaimed: boolean;
 };
 
+export type ReservationTerminalDecision =
+  | { status: 'SUCCESS' }
+  | { status: 'FAILURE'; failureCode: string };
+
+export class ReservationClaimOwnershipError extends Error {
+  constructor() {
+    super('reservation claim ownership could not be verified');
+    this.name = ReservationClaimOwnershipError.name;
+  }
+}
+
 export const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
 export const RESERVATION_DLQ_STREAM = '{queue:reservations}:dlq:v1';
 export const RESERVATION_CONSUMER_GROUP = 'reservation-workers-v1';
@@ -26,7 +37,9 @@ export const RESERVATION_TERMINAL_PREFIX = '{queue:reservations}:terminal:';
 
 const SAFE_TRACKING_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$/;
 const TRACKING_TTL_SECONDS = 24 * 60 * 60;
-const TERMINAL_TTL_SECONDS = 24 * 60 * 60;
+const MIN_RECLAIM_IDLE_MS = 100;
+const TERMINAL_SEPARATOR = '\u001f';
+const CLAIM_OWNERSHIP_LOST = '__CLAIM_OWNERSHIP_LOST__';
 
 type StreamEntry = [string, string[]];
 
@@ -60,6 +73,20 @@ export class TestRunTrackerService {
     return { runId, requestId };
   }
 
+  normalizeQueueTracking(runId?: string, requestId?: string) {
+    if (!runId && !requestId) return {};
+    if (
+      !runId ||
+      !requestId ||
+      !SAFE_TRACKING_ID.test(runId) ||
+      !SAFE_TRACKING_ID.test(requestId)
+    ) {
+      throw new BadRequestException('queue tracking metadata rejected');
+    }
+    this.base(runId);
+    return { runId, requestId };
+  }
+
   private base(runId: string): string {
     const prefix = process.env.REDIS_KEY_PREFIX || '';
     const testEnvId = process.env.TEST_ENV_ID || '';
@@ -71,7 +98,31 @@ export class TestRunTrackerService {
 
   private reclaimIdleMs(): number {
     const configured = Number(process.env.RESERVATION_RECLAIM_IDLE_MS || 30000);
-    return Number.isFinite(configured) && configured >= 0 ? configured : 30000;
+    return Number.isFinite(configured) && configured >= MIN_RECLAIM_IDLE_MS
+      ? configured
+      : 30000;
+  }
+
+  private terminalKey(message: ClaimedReservationMessage): string {
+    return `${RESERVATION_TERMINAL_PREFIX}${
+      message.reservationId || 'unknown'
+    }:${message.streamId}`;
+  }
+
+  private terminalValue(
+    status: 'SUCCESS' | 'FAILURE',
+    failureCode = '',
+  ): string {
+    return `${status}${TERMINAL_SEPARATOR}${failureCode}`;
+  }
+
+  private parseTerminalValue(value: string): ReservationTerminalDecision {
+    const separator = value.indexOf(TERMINAL_SEPARATOR);
+    const status = separator === -1 ? value : value.slice(0, separator);
+    const failureCode = separator === -1 ? '' : value.slice(separator + 1);
+    if (status === 'SUCCESS') return { status };
+    if (status === 'FAILURE') return { status, failureCode };
+    throw new Error('invalid reservation terminal decision');
   }
 
   private async ensureConsumerGroup(): Promise<void> {
@@ -258,6 +309,60 @@ export class TestRunTrackerService {
     }
   }
 
+  async terminalDecision(
+    message: ClaimedReservationMessage,
+  ): Promise<ReservationTerminalDecision | null> {
+    const value = await this.redis.get(this.terminalKey(message));
+    return value ? this.parseTerminalValue(value) : null;
+  }
+
+  async assertClaimOwnership(
+    message: ClaimedReservationMessage,
+  ): Promise<void> {
+    let refreshed: unknown;
+    try {
+      refreshed = await this.redis.eval(
+        `
+          local pending = redis.call('xpending', KEYS[1], ARGV[1], ARGV[3], ARGV[3], 1)
+          if #pending == 0 or pending[1][2] ~= ARGV[2] then return 0 end
+          local claimed = redis.call('xclaim', KEYS[1], ARGV[1], ARGV[2], 0, ARGV[3], 'JUSTID')
+          return #claimed
+        `,
+        1,
+        RESERVATION_STREAM,
+        RESERVATION_CONSUMER_GROUP,
+        this.consumerName,
+        message.streamId,
+      );
+    } catch {
+      throw new ReservationClaimOwnershipError();
+    }
+    if (Number(refreshed) !== 1) {
+      throw new ReservationClaimOwnershipError();
+    }
+  }
+
+  startClaimHeartbeat(message: ClaimedReservationMessage): () => Promise<void> {
+    const heartbeatMs = Math.max(25, Math.floor(this.reclaimIdleMs() / 3));
+    let stopped = false;
+    let inFlight: Promise<void> | undefined;
+    const refresh = () => {
+      if (stopped || inFlight) return;
+      inFlight = this.assertClaimOwnership(message)
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = undefined;
+        });
+    };
+    const timer = setInterval(refresh, heartbeatMs);
+    return async () => {
+      stopped = true;
+      clearInterval(timer);
+      await inFlight;
+      await this.assertClaimOwnership(message);
+    };
+  }
+
   async markProcessingStarted(
     message: ClaimedReservationMessage,
     data: TrackedReservationData,
@@ -322,19 +427,22 @@ export class TestRunTrackerService {
     status: 'SUCCESS' | 'FAILURE',
     failureCode = '',
   ): Promise<void> {
-    const terminalKey = `${RESERVATION_TERMINAL_PREFIX}${
-      message.reservationId || 'unknown'
-    }:${message.streamId}`;
+    const terminalKey = this.terminalKey(message);
+    const terminalValue = this.terminalValue(status, failureCode);
     const terminalStatus = await this.redis.eval(
       `
-        local first = redis.call('set', KEYS[2], ARGV[2], 'NX', 'EX', ARGV[3])
-        if first and ARGV[2] == 'FAILURE' then
+        local pending = redis.call('xpending', KEYS[1], ARGV[8], ARGV[1], ARGV[1], 1)
+        if #pending == 0 or pending[1][2] ~= ARGV[9] then
+          return '${CLAIM_OWNERSHIP_LOST}'
+        end
+        local first = redis.call('set', KEYS[2], ARGV[2], 'NX')
+        if first and ARGV[7] == 'FAILURE' then
           redis.call('xadd', KEYS[3], '*',
             'sourceStreamId', ARGV[1],
-            'reservationId', ARGV[4],
-            'deliveryCount', ARGV[5],
-            'failureCode', ARGV[6],
-            'payload', ARGV[7])
+            'reservationId', ARGV[3],
+            'deliveryCount', ARGV[4],
+            'failureCode', ARGV[5],
+            'payload', ARGV[6])
         end
         if first then return ARGV[2] end
         return redis.call('get', KEYS[2])
@@ -344,38 +452,68 @@ export class TestRunTrackerService {
       terminalKey,
       RESERVATION_DLQ_STREAM,
       message.streamId,
-      status,
-      TERMINAL_TTL_SECONDS,
+      terminalValue,
       message.reservationId || '',
       message.deliveryCount,
       failureCode,
       message.payload,
+      status,
+      RESERVATION_CONSUMER_GROUP,
+      this.consumerName,
     );
-    if (terminalStatus !== status) {
+    if (terminalStatus === CLAIM_OWNERSHIP_LOST) {
+      throw new ReservationClaimOwnershipError();
+    }
+    if (terminalStatus !== terminalValue) {
       throw new Error('reservation terminal status conflict');
     }
   }
 
   private async acknowledge(message: ClaimedReservationMessage): Promise<void> {
-    await this.redis.eval(
+    const acknowledged = await this.redis.eval(
       `
+        local pending = redis.call('xpending', KEYS[1], ARGV[1], ARGV[2], ARGV[2], 1)
+        if #pending == 0 or pending[1][2] ~= ARGV[3] then
+          return '${CLAIM_OWNERSHIP_LOST}'
+        end
         redis.call('xack', KEYS[1], ARGV[1], ARGV[2])
         redis.call('xdel', KEYS[1], ARGV[2])
+        redis.call('del', KEYS[2])
         return 1
       `,
-      1,
+      2,
       RESERVATION_STREAM,
+      this.terminalKey(message),
       RESERVATION_CONSUMER_GROUP,
       message.streamId,
+      this.consumerName,
     );
+    if (acknowledged === CLAIM_OWNERSHIP_LOST) {
+      throw new ReservationClaimOwnershipError();
+    }
+    if (Number(acknowledged) !== 1) {
+      throw new Error('reservation acknowledgement failed');
+    }
+  }
+
+  async resumeFinalization(
+    message: ClaimedReservationMessage,
+    data: TrackedReservationData | undefined,
+    decision: ReservationTerminalDecision,
+  ): Promise<void> {
+    if (decision.status === 'SUCCESS') {
+      await this.markSuccess(message, data);
+      return;
+    }
+    await this.markFailure(message, data, decision.failureCode);
   }
 
   async markSuccess(
     message: ClaimedReservationMessage,
-    data: TrackedReservationData,
+    data: TrackedReservationData | undefined,
   ): Promise<void> {
     await this.beginFinalization(message, 'SUCCESS');
-    if (data.runId && data.requestId) {
+    if (data?.runId && data.requestId) {
       const base = this.base(data.runId);
       await this.redis.eval(
         `

@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import calculateSlot from 'cluster-key-slot';
 import {
   RESERVATION_CONSUMER_GROUP,
+  ReservationClaimOwnershipError,
   RESERVATION_DLQ_STREAM,
   RESERVATION_STREAM,
   RESERVATION_TERMINAL_PREFIX,
@@ -39,6 +40,8 @@ describe('TestRunTrackerService', () => {
       xautoclaim: jest.fn().mockResolvedValue(['0-0', []]),
       xpending: jest.fn().mockResolvedValue([]),
       xreadgroup: jest.fn().mockResolvedValue(null),
+      get: jest.fn().mockResolvedValue(null),
+      eval: jest.fn().mockResolvedValue(1),
       pipelineCommands: pipeline,
     };
   }
@@ -54,6 +57,27 @@ describe('TestRunTrackerService', () => {
     expect(() => service.normalizeTracking('smoke-run', 'request-1')).toThrow(
       BadRequestException,
     );
+  });
+
+  it('validates queued tracking independently from producer admission flags', () => {
+    configureEnvironment();
+    process.env.NODE_ENV = 'production';
+    process.env.ENABLE_TEST_PREFLIGHT = 'false';
+    process.env.ALLOW_TEST_DATA_MUTATION = 'false';
+    const service = new TestRunTrackerService(redisMock() as never);
+
+    expect(service.normalizeQueueTracking('smoke-run', 'request-1')).toEqual({
+      runId: 'smoke-run',
+      requestId: 'request-1',
+    });
+    expect(() =>
+      service.normalizeQueueTracking('smoke-run', undefined),
+    ).toThrow(BadRequestException);
+
+    process.env.REDIS_KEY_PREFIX = 'wrong:';
+    expect(() =>
+      service.normalizeQueueTracking('smoke-run', 'request-1'),
+    ).toThrow(BadRequestException);
   });
 
   it('atomically records accepted IDs while enqueueing tracked work', async () => {
@@ -172,6 +196,224 @@ describe('TestRunTrackerService', () => {
       'COUNT',
       1,
     );
+  });
+
+  it('rejects reclaim idle values that are too short for a safe heartbeat', async () => {
+    configureEnvironment();
+    process.env.RESERVATION_RECLAIM_IDLE_MS = '99';
+    const redis = redisMock();
+    const service = new TestRunTrackerService(redis as never);
+
+    await service.claimNext();
+
+    expect(redis.xautoclaim).toHaveBeenCalledWith(
+      RESERVATION_STREAM,
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+      30000,
+      '0-0',
+      'COUNT',
+      1,
+    );
+  });
+
+  it('refreshes only its own pending claim and absorbs heartbeat errors', async () => {
+    configureEnvironment();
+    process.env.RESERVATION_RECLAIM_IDLE_MS = '100';
+    jest.useFakeTimers();
+    const redis = redisMock();
+    redis.eval
+      .mockRejectedValueOnce(new Error('redis unavailable'))
+      .mockResolvedValueOnce(1);
+    const service = new TestRunTrackerService(redis as never);
+    const message = {
+      streamId: '1-0',
+      reservationId: 'reservation-1',
+      payload: '{}',
+      deliveryCount: 1,
+      reclaimed: false,
+    };
+
+    try {
+      const stop = service.startClaimHeartbeat(message);
+      await jest.advanceTimersByTimeAsync(40);
+      await expect(stop()).resolves.toBeUndefined();
+
+      expect(redis.eval).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /redis\.call\('xpending'[\s\S]*pending\[1\]\[2\] ~= ARGV\[2\][\s\S]*redis\.call\('xclaim'/,
+        ),
+        1,
+        RESERVATION_STREAM,
+        RESERVATION_CONSUMER_GROUP,
+        expect.any(String),
+        message.streamId,
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('fails a synchronous ownership assertion when the claim moved', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.eval.mockResolvedValue(0);
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(
+      service.assertClaimOwnership({
+        streamId: '1-0',
+        reservationId: 'reservation-1',
+        payload: '{}',
+        deliveryCount: 1,
+        reclaimed: false,
+      }),
+    ).rejects.toBeInstanceOf(ReservationClaimOwnershipError);
+  });
+
+  it('persists failure detail and deletes the terminal key with acknowledgement', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const message = {
+      streamId: '1-0',
+      reservationId: 'reservation-1',
+      payload: '{not-json',
+      deliveryCount: 3,
+      reclaimed: true,
+    };
+    redis.eval
+      .mockResolvedValueOnce('FAILURE\u001fPOISON_MESSAGE')
+      .mockResolvedValueOnce(1);
+    const service = new TestRunTrackerService(redis as never);
+
+    await service.markFailure(message, undefined, 'POISON_MESSAGE');
+
+    expect(redis.eval).toHaveBeenNthCalledWith(
+      1,
+      expect.not.stringContaining("'EX'"),
+      3,
+      RESERVATION_STREAM,
+      `${RESERVATION_TERMINAL_PREFIX}reservation-1:1-0`,
+      RESERVATION_DLQ_STREAM,
+      '1-0',
+      'FAILURE\u001fPOISON_MESSAGE',
+      'reservation-1',
+      3,
+      'POISON_MESSAGE',
+      '{not-json',
+      'FAILURE',
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+    );
+    expect(redis.eval).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(
+        /redis\.call\('xpending'[\s\S]*pending\[1\]\[2\] ~= ARGV\[3\][\s\S]*redis\.call\('del', KEYS\[2\]\)/,
+      ),
+      2,
+      RESERVATION_STREAM,
+      `${RESERVATION_TERMINAL_PREFIX}reservation-1:1-0`,
+      RESERVATION_CONSUMER_GROUP,
+      '1-0',
+      expect.any(String),
+    );
+  });
+
+  it('rejects terminal creation when another consumer owns the claim', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.eval.mockResolvedValue('__CLAIM_OWNERSHIP_LOST__');
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(
+      service.markFailure(
+        {
+          streamId: '1-0',
+          reservationId: 'reservation-1',
+          payload: '{not-json',
+          deliveryCount: 2,
+          reclaimed: true,
+        },
+        undefined,
+        'POISON_MESSAGE',
+      ),
+    ).rejects.toBeInstanceOf(ReservationClaimOwnershipError);
+
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /redis\.call\('xpending'[\s\S]*pending\[1\]\[2\] ~= ARGV\[9\][\s\S]*redis\.call\('set'/,
+      ),
+      3,
+      RESERVATION_STREAM,
+      `${RESERVATION_TERMINAL_PREFIX}reservation-1:1-0`,
+      RESERVATION_DLQ_STREAM,
+      '1-0',
+      'FAILURE\u001fPOISON_MESSAGE',
+      'reservation-1',
+      2,
+      'POISON_MESSAGE',
+      '{not-json',
+      'FAILURE',
+      RESERVATION_CONSUMER_GROUP,
+      expect.any(String),
+    );
+  });
+
+  it('leaves terminal recovery state when ownership changes before acknowledgement', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.eval
+      .mockResolvedValueOnce('FAILURE\u001fPOISON_MESSAGE')
+      .mockResolvedValueOnce('__CLAIM_OWNERSHIP_LOST__');
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(
+      service.markFailure(
+        {
+          streamId: '1-0',
+          reservationId: 'reservation-1',
+          payload: '{not-json',
+          deliveryCount: 2,
+          reclaimed: true,
+        },
+        undefined,
+        'POISON_MESSAGE',
+      ),
+    ).rejects.toBeInstanceOf(ReservationClaimOwnershipError);
+
+    expect(redis.eval).toHaveBeenCalledTimes(2);
+    expect(redis.eval).toHaveBeenLastCalledWith(
+      expect.stringMatching(
+        /redis\.call\('xpending'[\s\S]*return '__CLAIM_OWNERSHIP_LOST__'[\s\S]*redis\.call\('del', KEYS\[2\]\)/,
+      ),
+      2,
+      RESERVATION_STREAM,
+      `${RESERVATION_TERMINAL_PREFIX}reservation-1:1-0`,
+      RESERVATION_CONSUMER_GROUP,
+      '1-0',
+      expect.any(String),
+    );
+  });
+
+  it('reads a persisted terminal failure for pre-database recovery', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.get.mockResolvedValue('FAILURE\u001fPROCESSING_ERROR');
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(
+      service.terminalDecision({
+        streamId: '1-0',
+        reservationId: 'reservation-1',
+        payload: '{}',
+        deliveryCount: 4,
+        reclaimed: true,
+      }),
+    ).resolves.toEqual({
+      status: 'FAILURE',
+      failureCode: 'PROCESSING_ERROR',
+    });
   });
 
   it('keeps every queue key in one Redis Cluster slot', () => {
