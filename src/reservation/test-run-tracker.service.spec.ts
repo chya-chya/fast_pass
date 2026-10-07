@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import calculateSlot from 'cluster-key-slot';
 import {
+  LEGACY_RESERVATION_LISTS,
   RESERVATION_CONSUMER_GROUP,
   ReservationClaimOwnershipError,
   RESERVATION_DLQ_STREAM,
@@ -36,6 +37,8 @@ describe('TestRunTrackerService', () => {
     };
     return {
       pipeline: jest.fn(() => pipeline),
+      command: jest.fn().mockResolvedValue([['xautoclaim']]),
+      llen: jest.fn().mockResolvedValue(0),
       xgroup: jest.fn().mockResolvedValue('OK'),
       xautoclaim: jest.fn().mockResolvedValue(['0-0', []]),
       xpending: jest.fn().mockResolvedValue([]),
@@ -45,6 +48,86 @@ describe('TestRunTrackerService', () => {
       pipelineCommands: pipeline,
     };
   }
+
+  it('accepts Redis with XAUTOCLAIM when every legacy list is drained', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+
+    expect(redis.command).toHaveBeenCalledWith('INFO', 'XAUTOCLAIM');
+    LEGACY_RESERVATION_LISTS.forEach((key, index) => {
+      expect(redis.llen).toHaveBeenNthCalledWith(index + 1, key);
+    });
+  });
+
+  it('rejects Redis versions without XAUTOCLAIM support', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.command.mockResolvedValue([null]);
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'Redis 6.2+ with XAUTOCLAIM support is required',
+    );
+    expect(redis.llen).not.toHaveBeenCalled();
+  });
+
+  it('rejects startup while a legacy reservation list has backlog', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.llen.mockImplementation((key: string) =>
+      Promise.resolve(key === '{queue:reservations}:processing' ? 2 : 0),
+    );
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'legacy reservation queues must be drained before startup: {queue:reservations}:processing=2',
+    );
+  });
+
+  it('caches successful readiness and retries a failed readiness check', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    redis.command
+      .mockResolvedValueOnce([null])
+      .mockResolvedValueOnce([['xautoclaim']]);
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'Redis 6.2+ with XAUTOCLAIM support is required',
+    );
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    await expect(service.claimNext()).resolves.toBeNull();
+
+    expect(redis.command).toHaveBeenCalledTimes(2);
+    expect(redis.llen).toHaveBeenCalledTimes(LEGACY_RESERVATION_LISTS.length);
+  });
+
+  it('does not enqueue before the shared readiness check completes', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    let resolveCapability!: (value: unknown) => void;
+    redis.command.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCapability = resolve;
+      }),
+    );
+    const service = new TestRunTrackerService(redis as never);
+
+    const enqueue = service.enqueue({
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    });
+    expect(redis.pipeline).not.toHaveBeenCalled();
+
+    resolveCapability([['xautoclaim']]);
+    await expect(enqueue).resolves.toBeUndefined();
+    expect(redis.pipeline).toHaveBeenCalledTimes(1);
+  });
 
   it('rejects partial or production tracking headers', () => {
     configureEnvironment();

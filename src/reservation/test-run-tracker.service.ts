@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  OnModuleInit,
+} from '@nestjs/common';
 import { hostname } from 'node:os';
 import Redis from 'ioredis';
 
@@ -34,6 +39,12 @@ export const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
 export const RESERVATION_DLQ_STREAM = '{queue:reservations}:dlq:v1';
 export const RESERVATION_CONSUMER_GROUP = 'reservation-workers-v1';
 export const RESERVATION_TERMINAL_PREFIX = '{queue:reservations}:terminal:';
+export const LEGACY_RESERVATION_LISTS = [
+  'queue:reservations',
+  '{queue:reservations}:processing',
+  '{queue:reservations}:retry',
+  '{queue:reservations}:dlq',
+] as const;
 
 const SAFE_TRACKING_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$/;
 const TRACKING_TTL_SECONDS = 24 * 60 * 60;
@@ -44,7 +55,8 @@ const CLAIM_OWNERSHIP_LOST = '__CLAIM_OWNERSHIP_LOST__';
 type StreamEntry = [string, string[]];
 
 @Injectable()
-export class TestRunTrackerService {
+export class TestRunTrackerService implements OnModuleInit {
+  private queueReady?: Promise<void>;
   private groupReady?: Promise<void>;
   private reclaimCursor = '0-0';
   private readonly consumerName = [
@@ -55,6 +67,55 @@ export class TestRunTrackerService {
   ].join('-');
 
   constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureQueueReady();
+  }
+
+  private supportsXAutoClaim(commandInfo: unknown): boolean {
+    if (!Array.isArray(commandInfo) || !Array.isArray(commandInfo[0])) {
+      return false;
+    }
+    return String(commandInfo[0][0]).toLowerCase() === 'xautoclaim';
+  }
+
+  private async checkQueueReadiness(): Promise<void> {
+    const commandInfo = await this.redis.command('INFO', 'XAUTOCLAIM');
+    if (!this.supportsXAutoClaim(commandInfo)) {
+      throw new Error('Redis 6.2+ with XAUTOCLAIM support is required');
+    }
+
+    const legacyBacklog = await Promise.all(
+      LEGACY_RESERVATION_LISTS.map(async (key) => ({
+        key,
+        length: Number(await this.redis.llen(key)),
+      })),
+    );
+    const nonEmptyLists = legacyBacklog.filter(({ length }) => length > 0);
+    if (nonEmptyLists.length > 0) {
+      const details = nonEmptyLists
+        .map(({ key, length }) => `${key}=${length}`)
+        .join(', ');
+      throw new Error(
+        `legacy reservation queues must be drained before startup: ${details}`,
+      );
+    }
+  }
+
+  private async ensureQueueReady(): Promise<void> {
+    if (!this.queueReady) {
+      this.queueReady = this.checkQueueReadiness();
+    }
+    const readiness = this.queueReady;
+    try {
+      await readiness;
+    } catch (error) {
+      if (this.queueReady === readiness) {
+        this.queueReady = undefined;
+      }
+      throw error;
+    }
+  }
 
   normalizeTracking(runId?: string, requestId?: string) {
     if (!runId && !requestId) return {};
@@ -213,6 +274,7 @@ export class TestRunTrackerService {
   }
 
   async enqueueMany(items: TrackedReservationData[]) {
+    await this.ensureQueueReady();
     const pipeline = this.redis.pipeline();
     for (const item of items) {
       const payload = JSON.stringify(item);
@@ -295,6 +357,7 @@ export class TestRunTrackerService {
   }
 
   async claimNext(): Promise<ClaimedReservationMessage | null> {
+    await this.ensureQueueReady();
     await this.ensureConsumerGroup();
     try {
       return await this.claim();

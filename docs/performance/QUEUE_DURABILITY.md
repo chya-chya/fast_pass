@@ -2,13 +2,13 @@
 
 ## 판정
 
-**`INTEGRATION_VERIFIED` — 기존 `NO_GO` 해제**
+**`POST_FIX_SMOKE_REQUIRED` — readiness 보강 후 clean commit 재검증 대기**
 
 예약 큐를 Redis list의 단일 `LMOVE` claim 방식에서 Redis Streams consumer group 기반 at-least-once delivery로 전환했다. worker가 DB 처리 도중 종료되면 메시지는 consumer group의 pending entries list(PEL)에 남고, 다른 worker가 설정된 idle 시간 뒤 `XAUTOCLAIM`으로 회수한다.
 
 DB commit 후 `XACK` 전에 worker가 종료되어 같은 메시지가 다시 전달되더라도 producer가 만든 reservation ID를 유지한다. consumer는 해당 ID의 DB 행을 먼저 확인하고 user, seat, reserved time이 같으면 이미 완료된 작업으로 화해한 뒤 ack한다. 같은 ID에 다른 payload가 연결된 경우에는 `IDEMPOTENCY_CONFLICT`로 격리한다.
 
-2026-10-05에 전용 일회성 PostgreSQL·Redis에서 실패 주입 테스트 7건, 재예약 회귀 2건, 실제 앱 Smoke와 사후 ID 감사를 모두 통과했다. 따라서 7단계의 메시지 복구·중복 처리 Gate를 충족했고 이후 의존 단계 진행을 허용한다.
+2026-10-05에 전용 일회성 PostgreSQL·Redis에서 실패 주입 테스트 8건, 재예약 회귀 2건, 실제 앱 Smoke와 사후 ID 감사를 모두 통과했다. 이후 readiness 보강 변경을 반영했으므로 실제 앱 Smoke 증거는 깨끗한 post-fix commit에서 다시 생성해야 한다.
 
 ## 구현된 delivery semantics
 
@@ -56,16 +56,7 @@ permanent/max-delivery failure: owner-fenced DLQ XADD -> source XACK + XDEL
 
 ## 실제 앱 Smoke와 ID 감사
 
-- Run ID: `local-smoke-20261005103558-41063`
-- 실행: `k6/tools/run-local-integration.sh smoke`
-- 상태: `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`
-- 감사 판정: `PASS`, reasons 없음
-- accepted / processed / DB persisted: `1 / 1 / 1`, 동일 reservation ID
-- pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
-- worker in-flight: `0`
-- conservation difference: `0`
-- drain: `1,089ms`
-- 증거: `k6/results/local-smoke-20261005103558-41063/`
+readiness 보강 변경 후의 실제 앱 Smoke와 ID 감사 증거는 아직 생성하지 않았다. 깨끗한 post-fix commit에서 `k6/tools/run-local-integration.sh smoke`를 실행하고, 생성된 Run ID와 최종 감사 결과를 이 절에 기록해야 한다. 이전 commit의 결과를 현재 변경의 증거로 재사용하지 않는다.
 
 감사기는 stream consumer group의 `lag`를 pending으로, PEL 수를 processing으로, delivery count가 2 이상인 PEL 항목을 retry로 읽는다. 따라서 새 메시지가 모두 claim됐더라도 PEL 또는 run별 worker in-flight가 남아 있으면 drain 완료로 판정하지 않는다. `k6/tests/audit.test.js`도 pending=0인 경우를 포함해 processing, retry, worker in-flight 중 하나라도 남으면 `isDrainCandidate()`가 false임을 검증한다.
 
@@ -92,20 +83,21 @@ terminal-failure/DLQ/PEL = {}
 
 ## 운영 경계와 migration
 
+- Redis 6.2 이상이 필수다. 앱은 시작 시 비파괴 `COMMAND INFO XAUTOCLAIM` 검사로 기능 지원 여부를 확인하고, 지원하지 않으면 producer와 worker 모두 준비되지 않은 상태로 종료한다. 로컬 Compose는 Redis 7을 사용한다.
 - reclaim idle 값은 정상 DB transaction의 상한보다 충분히 길게 설정해야 한다. 지나치게 짧으면 살아 있는 느린 worker의 항목을 다른 worker가 조기에 회수할 수 있다. reservation ID idempotency가 DB 중복은 막지만 불필요한 동시 작업은 발생할 수 있다.
 - stream trim 정책은 아직 자동 적용하지 않는다. 성공 항목은 ack와 함께 `XDEL`하고 DLQ는 운영자가 원인을 확인할 수 있도록 별도 stream에 유지한다.
-- 배포 전에 기존 list의 pending·processing·DLQ ID manifest를 저장하고 신규 enqueue를 잠시 중지한다. 기존 항목을 같은 reservation ID로 신규 stream에 한 번만 옮긴 뒤 producer와 consumer를 같은 배포에서 전환한다.
-- legacy list consumer와 stream consumer를 동시에 활성화하거나 무중단 dual-write하지 않는다. 부분 성공 시 중복과 두 queue 간 불일치가 생길 수 있다.
+- 배포 전에 기존 producer와 worker를 모두 중지하고 `queue:reservations`, `{queue:reservations}:processing`, `{queue:reservations}:retry`, `{queue:reservations}:dlq`를 완전히 drain한다. 앱은 네 list 중 하나라도 남아 있으면 시작과 신규 enqueue/claim을 거부한다.
+- legacy list consumer와 stream consumer를 동시에 활성화하거나 무중단 dual-write하지 않는다. rolling mixed-version 배포도 지원하지 않는다. 기존 producer/worker 중지 → legacy queue drain 확인 → 신규 버전 시작 순서로 전환한다.
 - 운영 데이터 migration과 원격 장애 주입은 이번 단계에서 수행하지 않았다.
 
 ## 검증 결과
 
 - `git diff --check`: 통과
 - `npm run build`: 통과
-- tracker/service focused Jest: 35/35 통과
+- tracker/service focused Jest: 40/40 통과
 - queue durability disposable integration: 8/8 통과
 - rebooking disposable integration: 2/2 통과
-- 실제 앱 Smoke + artifact finalize + ID audit: 통과
+- 실제 앱 Smoke + artifact finalize + ID audit: post-fix commit에서 재생성 필요
 - reservation 전체 Jest: 47개 통과, 10개 조건부 통합 테스트 skip
 - queue drain/ID audit Node test: 38/38 통과
 - Compose 설정 및 shell/JavaScript 문법 검사: 통과
