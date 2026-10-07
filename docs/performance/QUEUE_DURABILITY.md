@@ -2,13 +2,13 @@
 
 ## 판정
 
-**`POST_FIX_SMOKE_REQUIRED` — readiness 보강 후 clean commit 재검증 대기**
+**`INTEGRATION_VERIFIED` — readiness 보강 후 clean commit 재검증 완료**
 
 예약 큐를 Redis list의 단일 `LMOVE` claim 방식에서 Redis Streams consumer group 기반 at-least-once delivery로 전환했다. worker가 DB 처리 도중 종료되면 메시지는 consumer group의 pending entries list(PEL)에 남고, 다른 worker가 설정된 idle 시간 뒤 `XAUTOCLAIM`으로 회수한다.
 
 DB commit 후 `XACK` 전에 worker가 종료되어 같은 메시지가 다시 전달되더라도 producer가 만든 reservation ID를 유지한다. consumer는 해당 ID의 DB 행을 먼저 확인하고 user, seat, reserved time이 같으면 이미 완료된 작업으로 화해한 뒤 ack한다. 같은 ID에 다른 payload가 연결된 경우에는 `IDEMPOTENCY_CONFLICT`로 격리한다.
 
-2026-10-05에 전용 일회성 PostgreSQL·Redis에서 실패 주입 테스트 8건, 재예약 회귀 2건, 실제 앱 Smoke와 사후 ID 감사를 모두 통과했다. 이후 readiness 보강 변경을 반영했으므로 실제 앱 Smoke 증거는 깨끗한 post-fix commit에서 다시 생성해야 한다.
+2026-10-07에 전용 일회성 PostgreSQL·Redis에서 실패 주입 테스트 8건, 재예약 회귀 2건, 실제 앱 Smoke와 사후 ID 감사를 모두 다시 통과했다. 실제 앱 검증은 readiness 보강이 포함된 clean commit `945be05`에서 실행했으므로 7단계의 메시지 복구·중복 처리 Gate를 충족한다.
 
 ## 구현된 delivery semantics
 
@@ -56,7 +56,17 @@ permanent/max-delivery failure: owner-fenced DLQ XADD -> source XACK + XDEL
 
 ## 실제 앱 Smoke와 ID 감사
 
-readiness 보강 변경 후의 실제 앱 Smoke와 ID 감사 증거는 아직 생성하지 않았다. 깨끗한 post-fix commit에서 `k6/tools/run-local-integration.sh smoke`를 실행하고, 생성된 Run ID와 최종 감사 결과를 이 절에 기록해야 한다. 이전 commit의 결과를 현재 변경의 증거로 재사용하지 않는다.
+- Run ID: `local-smoke-20261007065239-89449`
+- 소스: `945be053e2a55208cf6a30cca723871d63a8796d`, `gitDirty=false`
+- 실행: `k6/tools/run-local-integration.sh smoke`
+- 상태: `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`
+- 감사 판정: `PASS`, reasons 없음
+- accepted / processed / DB persisted: `1 / 1 / 1`, 동일 reservation ID
+- pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
+- worker in-flight: `0`
+- conservation difference: `0`
+- drain: `1,115ms`
+- 증거: `k6/results/local-smoke-20261007065239-89449/`
 
 감사기는 stream consumer group의 `lag`를 pending으로, PEL 수를 processing으로, delivery count가 2 이상인 PEL 항목을 retry로 읽는다. 따라서 새 메시지가 모두 claim됐더라도 PEL 또는 run별 worker in-flight가 남아 있으면 drain 완료로 판정하지 않는다. `k6/tests/audit.test.js`도 pending=0인 경우를 포함해 processing, retry, worker in-flight 중 하나라도 남으면 `isDrainCandidate()`가 false임을 검증한다.
 
@@ -75,9 +85,9 @@ duplicate DB IDs와 unexpected DB IDs = ∅
 성공 Smoke Run에서는 다음과 같이 수렴했다.
 
 ```text
-accepted/enqueued = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
-processed-success = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
-DB persisted = {0427deba-60b5-4e1b-bfd5-91e7a12f16e6}
+accepted/enqueued = {3ba3deb4-9bb1-416a-9b48-b4e24e3e35a8}
+processed-success = {3ba3deb4-9bb1-416a-9b48-b4e24e3e35a8}
+DB persisted = {3ba3deb4-9bb1-416a-9b48-b4e24e3e35a8}
 terminal-failure/DLQ/PEL = {}
 ```
 
@@ -97,7 +107,7 @@ terminal-failure/DLQ/PEL = {}
 - tracker/service focused Jest: 40/40 통과
 - queue durability disposable integration: 8/8 통과
 - rebooking disposable integration: 2/2 통과
-- 실제 앱 Smoke + artifact finalize + ID audit: post-fix commit에서 재생성 필요
-- reservation 전체 Jest: 47개 통과, 10개 조건부 통합 테스트 skip
+- 실제 앱 Smoke + artifact finalize + ID audit: clean commit `945be05`에서 통과
+- reservation 전체 Jest: 52개 통과, 10개 조건부 통합 테스트 skip
 - queue drain/ID audit Node test: 38/38 통과
 - Compose 설정 및 shell/JavaScript 문법 검사: 통과

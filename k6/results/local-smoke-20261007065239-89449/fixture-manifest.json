@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261007065239-89449",
+  "testEnvId": "k6int2026100706523989449",
+  "userIds": [
+    "cmuxr3bq700005m7t6bfv0lg3"
+  ],
+  "eventIds": [
+    "cmuxr3d8900015m7tog232zqu"
+  ],
+  "performanceIds": [
+    "cmuxr3dzz00025m7th68a3rhb"
+  ],
+  "seatIds": [
+    "cmuxr3e0200035m7t64tt7x7y",
+    "cmuxr3e0200045m7tiq2cuze6",
+    "cmuxr3e0200055m7t7u6ntq9s",
+    "cmuxr3e0200065m7tfhq87dk4",
+    "cmuxr3e0200075m7tvq2fv771"
+  ],
+  "requestIds": [
+    "local-smoke-20261007065239-89449-req-0"
+  ],
+  "reservationIds": [
+    "3ba3deb4-9bb1-416a-9b48-b4e24e3e35a8"
+  ],
+  "scenario": "smoke",
+  "cacheProfile": null,
+  "requestManifest": null,
+  "expectedAccepted": null,
+  "expectedConflicts": null,
+  "requestsPerSeat": null,
+  "counts": {
+    "users": 1,
+    "events": 1,
+    "performances": 1,
+    "seats": 5,
+    "acceptedReservations": 1,
+    "requestAttempts": 1
+  }
+}
