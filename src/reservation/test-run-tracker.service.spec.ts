@@ -83,11 +83,11 @@ describe('TestRunTrackerService', () => {
     const service = new TestRunTrackerService(redis as never);
 
     await expect(service.onModuleInit()).rejects.toThrow(
-      'legacy reservation queues must be drained before startup: {queue:reservations}:processing=2',
+      'legacy reservation queues must be drained before stream activation: {queue:reservations}:processing=2',
     );
   });
 
-  it('caches successful readiness and retries a failed readiness check', async () => {
+  it('caches capability success, reruns backlog checks, and retries capability failures', async () => {
     configureEnvironment();
     const redis = redisMock();
     redis.command
@@ -102,7 +102,66 @@ describe('TestRunTrackerService', () => {
     await expect(service.claimNext()).resolves.toBeNull();
 
     expect(redis.command).toHaveBeenCalledTimes(2);
-    expect(redis.llen).toHaveBeenCalledTimes(LEGACY_RESERVATION_LISTS.length);
+    expect(redis.llen).toHaveBeenCalledTimes(
+      LEGACY_RESERVATION_LISTS.length * 2,
+    );
+  });
+
+  it('caches capability success but checks every legacy list on later startup calls', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+
+    expect(redis.command).toHaveBeenCalledTimes(1);
+    expect(redis.llen).toHaveBeenCalledTimes(
+      LEGACY_RESERVATION_LISTS.length * 2,
+    );
+  });
+
+  it('blocks enqueue when a legacy backlog appears after startup', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    redis.llen.mockImplementation((key: string) =>
+      Promise.resolve(key === 'queue:reservations' ? 1 : 0),
+    );
+
+    await expect(
+      service.enqueue({
+        id: 'reservation-1',
+        userId: 'user-1',
+        seatId: 'seat-1',
+        reservedAt: new Date().toISOString(),
+      }),
+    ).rejects.toThrow(
+      'legacy reservation queues must be drained before stream activation: queue:reservations=1',
+    );
+    expect(redis.command).toHaveBeenCalledTimes(1);
+    expect(redis.pipeline).not.toHaveBeenCalled();
+    expect(redis.pipelineCommands.xadd).not.toHaveBeenCalled();
+  });
+
+  it('blocks claims when a legacy backlog appears after startup', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const service = new TestRunTrackerService(redis as never);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    redis.llen.mockImplementation((key: string) =>
+      Promise.resolve(key === '{queue:reservations}:retry' ? 1 : 0),
+    );
+
+    await expect(service.claimNext()).rejects.toThrow(
+      'legacy reservation queues must be drained before stream activation: {queue:reservations}:retry=1',
+    );
+    expect(redis.command).toHaveBeenCalledTimes(1);
+    expect(redis.xautoclaim).not.toHaveBeenCalled();
+    expect(redis.xreadgroup).not.toHaveBeenCalled();
   });
 
   it('does not enqueue before the shared readiness check completes', async () => {

@@ -56,7 +56,7 @@ type StreamEntry = [string, string[]];
 
 @Injectable()
 export class TestRunTrackerService implements OnModuleInit {
-  private queueReady?: Promise<void>;
+  private xAutoClaimReady?: Promise<void>;
   private groupReady?: Promise<void>;
   private reclaimCursor = '0-0';
   private readonly consumerName = [
@@ -79,12 +79,14 @@ export class TestRunTrackerService implements OnModuleInit {
     return String(commandInfo[0][0]).toLowerCase() === 'xautoclaim';
   }
 
-  private async checkQueueReadiness(): Promise<void> {
+  private async checkXAutoClaimSupport(): Promise<void> {
     const commandInfo = await this.redis.command('INFO', 'XAUTOCLAIM');
     if (!this.supportsXAutoClaim(commandInfo)) {
       throw new Error('Redis 6.2+ with XAUTOCLAIM support is required');
     }
+  }
 
+  private async checkLegacyQueueBacklog(): Promise<void> {
     const legacyBacklog = await Promise.all(
       LEGACY_RESERVATION_LISTS.map(async (key) => ({
         key,
@@ -97,24 +99,29 @@ export class TestRunTrackerService implements OnModuleInit {
         .map(({ key, length }) => `${key}=${length}`)
         .join(', ');
       throw new Error(
-        `legacy reservation queues must be drained before startup: ${details}`,
+        `legacy reservation queues must be drained before stream activation: ${details}`,
       );
     }
   }
 
-  private async ensureQueueReady(): Promise<void> {
-    if (!this.queueReady) {
-      this.queueReady = this.checkQueueReadiness();
+  private async ensureXAutoClaimSupport(): Promise<void> {
+    if (!this.xAutoClaimReady) {
+      this.xAutoClaimReady = this.checkXAutoClaimSupport();
     }
-    const readiness = this.queueReady;
+    const readiness = this.xAutoClaimReady;
     try {
       await readiness;
     } catch (error) {
-      if (this.queueReady === readiness) {
-        this.queueReady = undefined;
+      if (this.xAutoClaimReady === readiness) {
+        this.xAutoClaimReady = undefined;
       }
       throw error;
     }
+  }
+
+  private async ensureQueueReady(): Promise<void> {
+    await this.ensureXAutoClaimSupport();
+    await this.checkLegacyQueueBacklog();
   }
 
   normalizeTracking(runId?: string, requestId?: string) {
