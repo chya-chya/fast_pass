@@ -124,18 +124,18 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 ## 7단계 Redis Streams 검증 기록
 
-2026-10-07에 매 작업 전 legacy backlog 재검사를 포함한 clean commit `564b2bc5ea93a64b54b11d964db81a46e4e6eea7`에서 `local-smoke-20261007070710-98014` Run을 실행했다. metadata의 `gitDirty=false`를 확인했고, `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`, consistency audit `PASS`로 종료됐다.
+2026-10-07에 terminal marker 조회 장애의 PEL 보존을 포함한 clean commit `029a10d17be4e6709ae1537c90f3aaead98e33e1`에서 `local-smoke-20261007114952-10914` Run을 실행했다. metadata의 `gitDirty=false`를 확인했고, `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`, consistency audit `PASS`로 종료됐다.
 
 - accepted / processed / DB persisted: `1 / 1 / 1` (동일 reservation ID)
 - pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
 - worker in-flight / conservation difference: `0 / 0`
-- drain: `1,064ms`
-- 상세 결과: [`local-smoke-20261007070710-98014`](./local-smoke-20261007070710-98014/)
+- drain: `1,089ms`
+- 상세 결과: [`local-smoke-20261007114952-10914`](./local-smoke-20261007114952-10914/)
 - 큐 장애 주입 판정: [`QUEUE_DURABILITY.md`](../../docs/performance/QUEUE_DURABILITY.md)
 
 ### 같은 날의 중간 검증 이력
 
-`local-smoke-20261007065239-89449`는 Redis capability 및 startup readiness 가드가 포함된 clean commit `945be053e2a55208cf6a30cca723871d63a8796d`에서 통과했다. 이후 enqueue/claim마다 legacy backlog를 재검사하도록 보강했으므로 최종 판정은 위 `564b2bc` 실행을 기준으로 한다.
+`local-smoke-20261007070710-98014`는 매 작업 전 legacy backlog 재검사가 포함된 clean commit `564b2bc5ea93a64b54b11d964db81a46e4e6eea7`에서 통과했다. `local-smoke-20261007065239-89449`는 그 이전 Redis capability 및 startup readiness 가드 commit `945be053e2a55208cf6a30cca723871d63a8796d`의 결과다. 최종 판정은 위 `029a10d` 실행을 기준으로 한다.
 
 ### 이전 검증 이력
 
