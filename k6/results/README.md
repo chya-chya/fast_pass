@@ -121,3 +121,29 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 일반 DB 이름과 지속 볼륨을 사용하는 현재 기본 Compose는 의도적으로 preflight에서 차단되므로 `INTEGRATION_VERIFIED`의 근거가 될 수 없다.
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
+
+## 7단계 Redis Streams 검증 기록
+
+2026-10-07에 terminal marker 조회 장애의 PEL 보존을 포함한 clean commit `029a10d17be4e6709ae1537c90f3aaead98e33e1`에서 `local-smoke-20261007114952-10914` Run을 실행했다. metadata의 `gitDirty=false`를 확인했고, `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`, consistency audit `PASS`로 종료됐다.
+
+- accepted / processed / DB persisted: `1 / 1 / 1` (동일 reservation ID)
+- pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
+- worker in-flight / conservation difference: `0 / 0`
+- drain: `1,089ms`
+- 상세 결과: [`local-smoke-20261007114952-10914`](./local-smoke-20261007114952-10914/)
+- 큐 장애 주입 판정: [`QUEUE_DURABILITY.md`](../../docs/performance/QUEUE_DURABILITY.md)
+
+### 같은 날의 중간 검증 이력
+
+`local-smoke-20261007070710-98014`는 매 작업 전 legacy backlog 재검사가 포함된 clean commit `564b2bc5ea93a64b54b11d964db81a46e4e6eea7`에서 통과했다. `local-smoke-20261007065239-89449`는 그 이전 Redis capability 및 startup readiness 가드 commit `945be053e2a55208cf6a30cca723871d63a8796d`의 결과다. 최종 판정은 위 `029a10d` 실행을 기준으로 한다.
+
+### 이전 검증 이력
+
+2026-10-05에 Redis Streams consumer group, `XAUTOCLAIM`, reservation ID idempotency를 적용한 뒤 `local-smoke-20261005103558-41063` Run을 실행했다. 이 Run은 `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`이며 consistency audit가 `PASS`다.
+
+- accepted / processed / DB persisted: `1 / 1 / 1` (동일 reservation ID)
+- pending / processing / retry / DLQ: `0 / 0 / 0 / 0`
+- worker in-flight / conservation difference: `0 / 0`
+- drain: `1,089ms`
+- 상세 결과: [`local-smoke-20261005103558-41063`](./local-smoke-20261005103558-41063/)
+- 큐 장애 주입 판정: [`QUEUE_DURABILITY.md`](../../docs/performance/QUEUE_DURABILITY.md)

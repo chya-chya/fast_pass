@@ -1,5 +1,6 @@
-import { HttpStatus, Logger } from '@nestjs/common';
+import { ConflictException, HttpStatus, Logger } from '@nestjs/common';
 import { ReservationService } from './reservation.service';
+import { ReservationClaimOwnershipError } from './test-run-tracker.service';
 
 describe('ReservationService result contract', () => {
   const counter = {
@@ -225,15 +226,29 @@ describe('ReservationService result contract', () => {
       seatId: 'seat-1',
       reservedAt: new Date().toISOString(),
     };
-    const rawData = JSON.stringify(data);
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 1,
+      reclaimed: false,
+    };
     const prisma = {
       $transaction: jest.fn().mockResolvedValue(undefined),
     };
     const tracker = {
-      claimNext: jest.fn().mockResolvedValue(rawData),
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest.fn().mockResolvedValue(null),
+      resumeFinalization: jest.fn().mockResolvedValue(undefined),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      startClaimHeartbeat: jest
+        .fn()
+        .mockReturnValue(jest.fn().mockResolvedValue(undefined)),
+      normalizeQueueTracking: jest.fn().mockReturnValue({}),
       markProcessingStarted: jest.fn().mockResolvedValue(undefined),
       markSuccess: jest.fn().mockRejectedValue(new Error('redis unavailable')),
       markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
     };
     const processedCounter = {
       inc: jest.fn(),
@@ -253,10 +268,285 @@ describe('ReservationService result contract', () => {
     await expect(service.processNextReservation()).resolves.toBe(false);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tracker.markSuccess).toHaveBeenCalledWith(rawData, data);
+    expect(tracker.markSuccess).toHaveBeenCalledWith(message, data);
     expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(tracker.startClaimHeartbeat).toHaveBeenCalledWith(message);
+    expect(
+      tracker.startClaimHeartbeat.mock.results[0].value,
+    ).toHaveBeenCalled();
     expect(processedCounter.labels).toHaveBeenCalledWith('fail');
     expect(processedCounter.inc).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith('Failed to process reservation');
+  });
+
+  it('retries at max delivery when the reservation outcome is unknown', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    };
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 3,
+      reclaimed: false,
+    };
+    const reconciliationError = new Error('database read unavailable');
+    const prisma = {
+      $transaction: jest
+        .fn()
+        .mockRejectedValue(new ConflictException('seat conflict')),
+      reservation: {
+        findUnique: jest.fn().mockRejectedValue(reconciliationError),
+      },
+    };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest.fn().mockResolvedValue(null),
+      resumeFinalization: jest.fn().mockResolvedValue(undefined),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      startClaimHeartbeat: jest
+        .fn()
+        .mockReturnValue(jest.fn().mockResolvedValue(undefined)),
+      normalizeQueueTracking: jest.fn().mockReturnValue({}),
+      markProcessingStarted: jest.fn().mockResolvedValue(undefined),
+      markSuccess: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(prisma.reservation.findUnique).toHaveBeenCalledWith({
+      where: { id: data.id },
+    });
+    expect(tracker.markRetry).toHaveBeenCalledWith(
+      message,
+      data,
+      'OUTCOME_UNKNOWN',
+    );
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(tracker.markSuccess).not.toHaveBeenCalled();
+  });
+
+  it('retries at max delivery when the terminal decision cannot be read', async () => {
+    const message = {
+      streamId: '1-0',
+      reservationId: 'reservation-1',
+      payload: JSON.stringify({
+        id: 'reservation-1',
+        userId: 'user-1',
+        seatId: 'seat-1',
+        reservedAt: new Date().toISOString(),
+      }),
+      deliveryCount: 3,
+      reclaimed: true,
+    };
+    const prisma = { $transaction: jest.fn() };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest
+        .fn()
+        .mockRejectedValue(new Error('redis unavailable')),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(tracker.assertClaimOwnership).toHaveBeenCalledWith(message);
+    expect(tracker.markRetry).toHaveBeenCalledWith(
+      message,
+      undefined,
+      'OUTCOME_UNKNOWN',
+    );
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('resumes a terminal failure before entering the database', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    };
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 2,
+      reclaimed: true,
+    };
+    const decision = {
+      status: 'FAILURE' as const,
+      failureCode: 'PROCESSING_ERROR',
+    };
+    const prisma = { $transaction: jest.fn() };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest.fn().mockResolvedValue(decision),
+      resumeFinalization: jest.fn().mockResolvedValue(undefined),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      normalizeQueueTracking: jest.fn().mockReturnValue({}),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(tracker.resumeFinalization).toHaveBeenCalledWith(
+      message,
+      data,
+      decision,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tracker.assertClaimOwnership).toHaveBeenCalledWith(message);
+  });
+
+  it('DLQs invalid tracking data as poison without retaining parsed data', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+      runId: 'blocked-run',
+      requestId: 'request-1',
+    };
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 1,
+      reclaimed: false,
+    };
+    const prisma = { $transaction: jest.fn() };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest.fn().mockResolvedValue(null),
+      normalizeQueueTracking: jest.fn().mockImplementation(() => {
+        throw new Error('tracking environment rejected');
+      }),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(tracker.markFailure).toHaveBeenCalledWith(
+      message,
+      undefined,
+      'POISON_MESSAGE',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not finalize after losing claim ownership inside the transaction', async () => {
+    const data = {
+      id: 'reservation-1',
+      userId: 'user-1',
+      seatId: 'seat-1',
+      reservedAt: new Date().toISOString(),
+    };
+    const message = {
+      streamId: '1-0',
+      reservationId: data.id,
+      payload: JSON.stringify(data),
+      deliveryCount: 1,
+      reclaimed: false,
+    };
+    const tx = {
+      reservation: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(undefined),
+      },
+      seat: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: 'AVAILABLE', version: 1 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+      ),
+      reservation: { findUnique: jest.fn() },
+    };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest.fn().mockResolvedValue(null),
+      normalizeQueueTracking: jest.fn().mockReturnValue({}),
+      markProcessingStarted: jest.fn().mockResolvedValue(undefined),
+      startClaimHeartbeat: jest
+        .fn()
+        .mockReturnValue(jest.fn().mockResolvedValue(undefined)),
+      assertClaimOwnership: jest
+        .fn()
+        .mockRejectedValue(new ReservationClaimOwnershipError()),
+      markSuccess: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(tx.reservation.create).toHaveBeenCalled();
+    expect(tracker.assertClaimOwnership).toHaveBeenCalledWith(message);
+    expect(tracker.markSuccess).not.toHaveBeenCalled();
+    expect(tracker.markRetry).not.toHaveBeenCalled();
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(prisma.reservation.findUnique).not.toHaveBeenCalled();
   });
 });
