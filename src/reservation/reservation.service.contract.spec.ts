@@ -341,6 +341,52 @@ describe('ReservationService result contract', () => {
     expect(tracker.markSuccess).not.toHaveBeenCalled();
   });
 
+  it('retries at max delivery when the terminal decision cannot be read', async () => {
+    const message = {
+      streamId: '1-0',
+      reservationId: 'reservation-1',
+      payload: JSON.stringify({
+        id: 'reservation-1',
+        userId: 'user-1',
+        seatId: 'seat-1',
+        reservedAt: new Date().toISOString(),
+      }),
+      deliveryCount: 3,
+      reclaimed: true,
+    };
+    const prisma = { $transaction: jest.fn() };
+    const tracker = {
+      claimNext: jest.fn().mockResolvedValue(message),
+      terminalDecision: jest
+        .fn()
+        .mockRejectedValue(new Error('redis unavailable')),
+      assertClaimOwnership: jest.fn().mockResolvedValue(undefined),
+      markFailure: jest.fn().mockResolvedValue(undefined),
+      markRetry: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReservationService(
+      prisma as never,
+      {} as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      counter as never,
+      tracker as never,
+    );
+    jest.spyOn(console, 'error').mockImplementation();
+
+    await expect(service.processNextReservation()).resolves.toBe(false);
+
+    expect(tracker.assertClaimOwnership).toHaveBeenCalledWith(message);
+    expect(tracker.markRetry).toHaveBeenCalledWith(
+      message,
+      undefined,
+      'OUTCOME_UNKNOWN',
+    );
+    expect(tracker.markFailure).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('resumes a terminal failure before entering the database', async () => {
     const data = {
       id: 'reservation-1',

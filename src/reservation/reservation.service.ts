@@ -16,6 +16,7 @@ import { Counter } from 'prom-client';
 import {
   ClaimedReservationMessage,
   ReservationClaimOwnershipError,
+  ReservationTerminalDecision,
   TestRunTrackerService,
   TrackedReservationData,
 } from './test-run-tracker.service';
@@ -410,8 +411,12 @@ export class ReservationService {
       message = await this.testRunTracker.claimNext();
       if (!message) return false; // Queue empty
 
-      const terminalDecision =
-        await this.testRunTracker.terminalDecision(message);
+      let terminalDecision: ReservationTerminalDecision | null;
+      try {
+        terminalDecision = await this.testRunTracker.terminalDecision(message);
+      } catch {
+        throw new QueueOutcomeUnknownError();
+      }
       if (terminalDecision) {
         try {
           data = this.parseQueueData(message);
