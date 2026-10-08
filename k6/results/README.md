@@ -129,6 +129,19 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
 
+## 9단계 VU Capacity 검증 기록
+
+기본 `100 → 500 → 1,000 → 2,000 VU` profile은 정적 inspect만 수행했다. 원격 부하는 실행하지 않았으며 구현 Gate는 `STATIC_VERIFIED`다. 추가로 `1 → 2 → 3 → 4 VU` 축소 profile을 clean source의 격리 로컬 환경에서 별도 실행해 setup, outcome metric, queue drain과 DB ID 감사를 확인했다.
+
+- `unique-seat`: `local-capacity-vu-20261008034355-57936`, accepted/persisted `30/30`, conflict/unexpected `0/0`
+- `hot-seat`: `local-capacity-vu-20261008034433-58330`, accepted `1`, expected conflict `29`, unexpected `0`
+- 두 Run 모두 `gitDirty=false`, consistency/observability audit PASS, pending/processing/retry/DLQ `0/0/0/0`
+- verdict: `exploratory / NOT_APPLICABLE`; 축소 실제 RPS는 capacity 또는 지속 가능한 처리량 근거가 아니다.
+- 구현·검증 판정: [`PHASE9_VERIFICATION.md`](../../docs/performance/PHASE9_VERIFICATION.md)
+- 상세 결과: [`unique-seat`](./local-capacity-vu-20261008034355-57936/), [`hot-seat`](./local-capacity-vu-20261008034433-58330/)
+
+`local-capacity-vu-20261008033850-54886`은 fixture 분포 감사 결함을 발견한 실패 Run이다. `local-capacity-vu-20261008033939-55346`, `local-capacity-vu-20261008034009-55803`은 수정 확인용 dirty Run이며 최종 근거로 사용하지 않는다.
+
 ## 8단계 관측성 검증 기록
 
 2026-10-08에 clean commit `6c48a9e850d6db2053e8441652e459bfde9b1a26`에서 `local-smoke-20261008032627-49293` Run을 실행했다. consistency와 observability audit가 모두 `PASS`이며 앱 metric은 `available`, `valid=true`, 누락 0건이다.

@@ -35,15 +35,22 @@ fixture는 설정한 stage·think time으로 계산한 보수적 요청 예산 �
 
 ## 축소 통합 실행
 
-구현 중 dirty source에서 다음 두 Run이 전체 경로를 통과했다.
+clean source에서 다음 두 Run이 전체 경로를 통과했다.
 
-- `local-capacity-vu-20261008033939-55346`: `unique-seat`, 30 accepted, 30 persisted, conflict/unexpected 0
-- `local-capacity-vu-20261008034009-55803`: `hot-seat`, accepted 1, expected conflict 29, unexpected 0
-- 두 Run 모두 pending/processing/retry/DLQ 0, consistency/observability audit PASS
+- `local-capacity-vu-20261008034355-57936`: `unique-seat`, source `e8357512876c45994e30023e48c1426dd8a28ca0`, 30 accepted, 30 persisted, conflict/unexpected 0
+- `local-capacity-vu-20261008034433-58330`: `hot-seat`, source `09e9cce9180a4b190b7c269ac9ae82e35d08de6e`, accepted 1, expected conflict 29, unexpected 0
+- 두 Run 모두 `gitDirty=false`, `execution=COMPLETED`, `artifactSet=FINALIZED`, preflight/consistency/observability PASS
+- 두 Run 모두 pending/processing/retry/DLQ 및 worker in-flight 0, conservation difference 0
+- 두 Run의 capacity script SHA-256은 `0cea357831dc9c1dcea75bcc91b4f71a71200f9c5ad3369438e29cb21d4dda9c`로 같다.
 
-`local-capacity-vu-20261008033850-54886`은 미사용 fixture 좌석의 0건 분포를 실제 요청 분포와 비교하던 감사 오류를 fail-closed로 발견한 진단 Run이다. 기대 분포를 실제 요청 대상 좌석으로 제한한 뒤 두 profile이 통과했다.
+축소 stage별 실제 RPS는 두 Run 모두 약 `0.67 / 1.67 / 2.67 / 3.75`였다. 이는 1→2→3→4 VU 연결 검증값이며 제품 capacity 수치가 아니다.
 
-clean source 최종 Run은 구현 커밋 뒤 별도로 기록한다.
+증거:
+
+- [`unique-seat` 최종 Run](../../k6/results/local-capacity-vu-20261008034355-57936/)
+- [`hot-seat` 최종 Run](../../k6/results/local-capacity-vu-20261008034433-58330/)
+
+`local-capacity-vu-20261008033850-54886`은 미사용 fixture 좌석의 0건 분포를 실제 요청 분포와 비교하던 감사 오류를 fail-closed로 발견한 진단 Run이다. 기대 분포를 실제 요청 대상 좌석으로 제한한 뒤 두 profile이 통과했다. `local-capacity-vu-20261008033939-55346`, `local-capacity-vu-20261008034009-55803`은 수정 확인용 dirty Run이며 최종 근거로 사용하지 않는다.
 
 ## 검증 결과
 
