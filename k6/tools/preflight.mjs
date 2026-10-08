@@ -55,6 +55,7 @@ async function main() {
   assertObject(body, 'health response');
   assertObject(body.database, 'database health');
   assertObject(body.redis, 'redis health');
+  assertObject(body.observability, 'observability health');
   assertEqual(body.appId, config.expectedAppId, 'application identity');
   assertEqual(body.buildSha, config.expectedBuildSha, 'application build');
   assertEqual(body.testEnvId, config.testEnvId, 'test environment identity');
@@ -77,6 +78,21 @@ async function main() {
     body.redis.tlsMode,
     config.expectedRedisTlsMode,
     'Redis TLS mode',
+  );
+  assertEqual(
+    body.observability.tracingEnabled,
+    config.expectedTracingEnabled,
+    'tracing mode',
+  );
+  assertEqual(
+    body.observability.traceSampleRatio,
+    config.expectedTraceSampleRatio,
+    'trace sample ratio',
+  );
+  assertEqual(
+    body.observability.minSpanDurationMs,
+    config.expectedMinSpanDurationMs,
+    'trace duration filter',
   );
 
   process.stdout.write(

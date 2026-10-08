@@ -29,30 +29,33 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 
 ## 환경변수
 
-| 이름                       | 기본값                    | 실제 실행 규칙                                                                                   |
-| -------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `BASE_URL`                 | `http://127.0.0.1:3000`   | 루프백 `http`/`https`만 허용한다. 경로·query·credential은 거부한다.                              |
-| `RUN_ID`                   | inspect 시 `inspect-only` | 실제 실행에서는 필수다. 3~64자의 영문자·숫자·`.`·`_`·`-`만 허용하며 `..`와 경로 문자를 거부한다. |
-| `VU`                       | 시나리오별                | Smoke는 1~5, 정합성 시나리오는 1~1,000이다. inventory 기본값은 1,000이다.                        |
-| `RPS`                      | `1`                       | 1~10,000의 정수이며 k6 요청률 상한으로 적용한다.                                                 |
-| `DURATION`                 | `5s`                      | 1초~60초다.                                                                                      |
-| `USER_COUNT`               | 시나리오별                | 정합성 시나리오에서는 `VU`와 정확히 같아야 한다.                                                 |
-| `SEAT_COUNT`               | 시나리오별                | 단일 좌석은 1, inventory는 최대 50이며 `VU`를 정확히 나눠야 한다.                                |
-| `CACHE_PROFILE`            | `warm`                    | 정합성 시나리오의 `warm` 또는 `cold` 프로필이다.                                                 |
-| `TEST_ENVIRONMENT`         | 없음                      | 정확히 `local-disposable`이어야 한다.                                                            |
-| `TEST_ENV_ID`              | 없음                      | 3~64자의 안전한 전용 환경 ID여야 한다.                                                           |
-| `TEST_DATABASE_NAME`       | 없음                      | `fast_pass_k6_<환경 ID>` 형식의 실제 전용 DB 이름이어야 한다. 연결 URL은 받거나 기록하지 않는다. |
-| `TEST_REDIS_ID`            | 없음                      | 전용 Redis 인스턴스의 안전한 ID여야 한다.                                                        |
-| `REDIS_KEY_PREFIX`         | 없음                      | 정확히 `k6:<TEST_ENV_ID>:`여야 한다.                                                             |
-| `ALLOW_TEST_DATA_MUTATION` | 없음                      | 실제 실행에는 정확히 `true`가 필요하다.                                                          |
-| `EXPECTED_APP_ID`          | `fast_pass`               | health 응답의 앱 identity와 일치해야 한다.                                                       |
-| `EXPECTED_BUILD_SHA`       | 없음                      | 실제 실행에는 40자리 소문자 Git SHA가 필요하다.                                                  |
-| `EXPECTED_MIGRATION_ID`    | 없음                      | 실제 적용된 최신 Prisma migration과 일치해야 한다.                                               |
-| `EXPECTED_DB_TLS_MODE`     | `disable`                 | `disable` 또는 `require`이며 실제 PostgreSQL 세션과 일치해야 한다.                               |
-| `EXPECTED_REDIS_TLS_MODE`  | `disable`                 | `disable` 또는 `require`이며 실제 Redis client mode와 일치해야 한다.                             |
-| `TEST_PREFLIGHT_TOKEN`     | 없음                      | 32~256자의 출력 가능한 ASCII여야 한다. 요청 header에만 사용하고 출력·artifact에 저장하지 않는다. |
-| `ALLOW_REMOTE_LOAD`        | 없음                      | `true`여도 2단계에서는 원격 실행이 항상 차단된다.                                                |
-| `REMOTE_APPROVAL_MANIFEST` | 없음                      | 12단계 승인 검증기의 예약 인터페이스다. 지금은 원격 실행을 허용하지 않는다.                      |
+| 이름                                 | 기본값                    | 실제 실행 규칙                                                                                   |
+| ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------ |
+| `BASE_URL`                           | `http://127.0.0.1:3000`   | 루프백 `http`/`https`만 허용한다. 경로·query·credential은 거부한다.                              |
+| `RUN_ID`                             | inspect 시 `inspect-only` | 실제 실행에서는 필수다. 3~64자의 영문자·숫자·`.`·`_`·`-`만 허용하며 `..`와 경로 문자를 거부한다. |
+| `VU`                                 | 시나리오별                | Smoke는 1~5, 정합성 시나리오는 1~1,000이다. inventory 기본값은 1,000이다.                        |
+| `RPS`                                | `1`                       | 1~10,000의 정수이며 k6 요청률 상한으로 적용한다.                                                 |
+| `DURATION`                           | `5s`                      | 1초~60초다.                                                                                      |
+| `USER_COUNT`                         | 시나리오별                | 정합성 시나리오에서는 `VU`와 정확히 같아야 한다.                                                 |
+| `SEAT_COUNT`                         | 시나리오별                | 단일 좌석은 1, inventory는 최대 50이며 `VU`를 정확히 나눠야 한다.                                |
+| `CACHE_PROFILE`                      | `warm`                    | 정합성 시나리오의 `warm` 또는 `cold` 프로필이다.                                                 |
+| `TEST_ENVIRONMENT`                   | 없음                      | 정확히 `local-disposable`이어야 한다.                                                            |
+| `TEST_ENV_ID`                        | 없음                      | 3~64자의 안전한 전용 환경 ID여야 한다.                                                           |
+| `TEST_DATABASE_NAME`                 | 없음                      | `fast_pass_k6_<환경 ID>` 형식의 실제 전용 DB 이름이어야 한다. 연결 URL은 받거나 기록하지 않는다. |
+| `TEST_REDIS_ID`                      | 없음                      | 전용 Redis 인스턴스의 안전한 ID여야 한다.                                                        |
+| `REDIS_KEY_PREFIX`                   | 없음                      | 정확히 `k6:<TEST_ENV_ID>:`여야 한다.                                                             |
+| `ALLOW_TEST_DATA_MUTATION`           | 없음                      | 실제 실행에는 정확히 `true`가 필요하다.                                                          |
+| `EXPECTED_APP_ID`                    | `fast_pass`               | health 응답의 앱 identity와 일치해야 한다.                                                       |
+| `EXPECTED_BUILD_SHA`                 | 없음                      | 실제 실행에는 40자리 소문자 Git SHA가 필요하다.                                                  |
+| `EXPECTED_MIGRATION_ID`              | 없음                      | 실제 적용된 최신 Prisma migration과 일치해야 한다.                                               |
+| `EXPECTED_DB_TLS_MODE`               | `disable`                 | `disable` 또는 `require`이며 실제 PostgreSQL 세션과 일치해야 한다.                               |
+| `EXPECTED_REDIS_TLS_MODE`            | `disable`                 | `disable` 또는 `require`이며 실제 Redis client mode와 일치해야 한다.                             |
+| `EXPECTED_TRACING_ENABLED`           | `false`                   | health 응답의 실제 tracing on/off와 일치해야 한다.                                               |
+| `EXPECTED_OTEL_TRACE_SAMPLE_RATIO`   | `0.1`                     | 실제 앱의 trace-id ratio sampling 값과 일치해야 한다.                                            |
+| `EXPECTED_OTEL_MIN_SPAN_DURATION_MS` | `0`                       | 실제 앱의 span duration filter와 일치해야 한다.                                                  |
+| `TEST_PREFLIGHT_TOKEN`               | 없음                      | 32~256자의 출력 가능한 ASCII여야 한다. 요청 header에만 사용하고 출력·artifact에 저장하지 않는다. |
+| `ALLOW_REMOTE_LOAD`                  | 없음                      | `true`여도 2단계에서는 원격 실행이 항상 차단된다.                                                |
+| `REMOTE_APPROVAL_MANIFEST`           | 없음                      | 12단계 승인 검증기의 예약 인터페이스다. 지금은 원격 실행을 허용하지 않는다.                      |
 
 `--dry-run`은 위 항목 중 비밀이 아닌 최종 해석값만 JSON으로 출력한다. DB/Redis URL, token, password, JWT/AWS secret은 출력하거나 보관하지 않는다.
 
@@ -66,6 +69,8 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 4. 앱 ID, build SHA, `TEST_ENV_ID`가 기대값과 정확히 일치한다.
 5. PostgreSQL에 실제 query를 수행해 DB 이름, 최신 완료 migration, 현재 세션 TLS mode를 확인한다.
 6. Redis에 실제 `PING`과 `<REDIS_KEY_PREFIX>environment` marker 조회를 수행해 Redis ID, 환경 ID, prefix, client TLS mode를 확인한다.
+7. tracing on/off, sample ratio와 span duration filter가 기대한 실행 profile과 일치하는지 확인한다.
+8. 부하 시작 직전 `/metrics` allowlist snapshot을 확보하지 못하면 실행을 중단한다.
 
 하나라도 불일치하거나 응답이 없으면 fixture 생성 전에 종료한다. localhost API가 공유·원격 DB/Redis에 연결된 경우도 통과할 수 없다.
 
@@ -99,7 +104,7 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 - `fixture-manifest.json`: 이 Run이 생성한 사용자·이벤트·공연·좌석·요청·예약 ID와 수량
 - `summary.json`: allowlist metric과 threshold 결과
 - `consistency-audit.json`: queue drain, worker counter, DB 분포, accepted/processed/persisted ID 집합 대조와 판정
-- `server-metrics.json`: Run 시간창과 앱·DB·Redis 관측 요약. 관측 불가는 사유가 있는 `unavailable`로 기록
+- `server-metrics.json`: UTC Run 시간창, 시작·종료 앱 metric 차이, DB·Redis snapshot, 원본 query와 누락 지표. 관측 불가는 사유가 있는 `unavailable`로 기록
 - `report.md`: 목표, 조건, 수치, 정합성, 한계와 다음 결정
 - `checksums.sha256`: 위 6개 필수 artifact의 SHA-256
 

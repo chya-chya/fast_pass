@@ -22,6 +22,9 @@ describe('TestEnvironmentHealthController', () => {
       TEST_REDIS_ID: 'redis-health-test',
       REDIS_KEY_PREFIX: 'k6:health-test:',
       ALLOW_TEST_DATA_MUTATION: 'true',
+      ENABLE_TRACING: 'false',
+      OTEL_TRACE_SAMPLE_RATIO: '0.1',
+      OTEL_MIN_SPAN_DURATION_MS: '0',
     };
   }
 
@@ -68,6 +71,11 @@ describe('TestEnvironmentHealthController', () => {
         id: 'redis-health-test',
         keyPrefix: 'k6:health-test:',
         tlsMode: 'disable',
+      },
+      observability: {
+        tracingEnabled: false,
+        traceSampleRatio: 0.1,
+        minSpanDurationMs: 0,
       },
     });
   });

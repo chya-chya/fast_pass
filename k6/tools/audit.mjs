@@ -13,6 +13,11 @@ import {
 } from '../lib/audit.js';
 import { isLoopbackHostname, loadConfig } from '../lib/config.js';
 import { buildExpectedRequestManifest } from '../lib/consistency.js';
+import {
+  APP_METRIC_NAMES,
+  parsePrometheusSnapshot,
+  summarizePrometheusWindow,
+} from '../lib/prometheus.js';
 
 const { Pool } = pg;
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +25,7 @@ const repositoryRoot = path.resolve(toolDirectory, '..', '..');
 const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
 const RESERVATION_DLQ_STREAM = '{queue:reservations}:dlq:v1';
 const RESERVATION_CONSUMER_GROUP = 'reservation-workers-v1';
+const MAX_METRICS_BYTES = 2 * 1024 * 1024;
 
 function integerEnvironment(name, fallback, minimum, maximum) {
   const raw = process.env[name] || String(fallback);
@@ -55,6 +61,67 @@ function parseRedisInfo(raw) {
     result[key] = Number(line.slice(separator + 1).trim());
   }
   return result;
+}
+
+async function collectApplicationMetrics(config, resultDirectory) {
+  try {
+    const baseline = JSON.parse(
+      await readFile(
+        path.join(resultDirectory, '.app-metrics-baseline.json.tmp'),
+        'utf8',
+      ),
+    );
+    const response = await fetch(`${config.baseUrl}/metrics`, {
+      headers: { Accept: 'text/plain' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.status !== 200) throw new Error('metrics endpoint rejected');
+    const raw = await response.text();
+    if (Buffer.byteLength(raw) > MAX_METRICS_BYTES) {
+      throw new Error('metrics response is too large');
+    }
+    const end = parsePrometheusSnapshot(raw);
+    const summary = summarizePrometheusWindow(baseline, end);
+    const valid =
+      summary.missingMetrics.length === 0 &&
+      !summary.counterResetDetected &&
+      summary.queue.collectionUp === 1 &&
+      summary.queue.retryScanComplete === 1;
+    return {
+      status: 'available',
+      reason: valid ? null : 'required application metrics are incomplete',
+      valid,
+      sourceUri: null,
+      sourceType: 'direct_metrics_window_snapshot',
+      rawQueries: [
+        {
+          endpointPath: '/metrics',
+          metricNames: APP_METRIC_NAMES,
+          timezone: 'UTC',
+        },
+      ],
+      missingMetrics: summary.missingMetrics,
+      summary,
+    };
+  } catch {
+    return {
+      status: 'unavailable',
+      reason: 'application metrics window could not be collected',
+      valid: false,
+      sourceUri: null,
+      sourceType: 'direct_metrics_window_snapshot',
+      rawQueries: [
+        {
+          endpointPath: '/metrics',
+          metricNames: APP_METRIC_NAMES,
+          timezone: 'UTC',
+        },
+      ],
+      missingMetrics: APP_METRIC_NAMES,
+      summary: null,
+    };
+  }
 }
 
 async function atomicTempWrite(filePath, value) {
@@ -423,23 +490,32 @@ async function main() {
               xact_rollback::bigint::text AS "transactionsRolledBack"
        FROM pg_stat_database WHERE datname = current_database()`,
     );
+    const appMetrics = await collectApplicationMetrics(config, resultDirectory);
     const serverMetrics = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: config.runId,
       window: {
         startedAt: metadata.startedAt,
         endedAt: new Date().toISOString(),
+        timezone: 'UTC',
       },
-      app: {
-        status: 'unavailable',
-        reason: 'no per-run application metrics collector was configured',
-        sourceUri: null,
-      },
+      app: appMetrics,
       database: {
         status: 'available',
         reason: null,
         sourceUri: null,
         sourceType: 'direct_local_snapshot',
+        rawQueries: [
+          {
+            statement:
+              'pg_stat_database current database connections and transaction totals',
+            timezone: 'UTC',
+          },
+        ],
+        missingMetrics: [
+          'query_latency_time_series',
+          'lock_wait_duration_time_series',
+        ],
         summary: databaseStats.rows[0] || {},
       },
       redis: {
@@ -447,7 +523,27 @@ async function main() {
         reason: null,
         sourceUri: null,
         sourceType: 'direct_local_snapshot',
+        rawQueries: [{ command: 'INFO', timezone: 'UTC' }],
+        missingMetrics: ['command_latency_time_series'],
         summary: parseRedisInfo(await redis.info()),
+      },
+      pm2: {
+        status: 'unavailable',
+        reason: 'local disposable run does not use PM2',
+        sourceUri: null,
+        rawQueries: [
+          {
+            metricNames: [
+              'pm2_cpu',
+              'pm2_memory',
+              'pm2_uptime',
+              'pm2_restarts',
+              'pm2_loop_delay',
+            ],
+            timezone: 'UTC',
+          },
+        ],
+        missingMetrics: ['pm2 process metrics'],
       },
     };
 
@@ -487,7 +583,10 @@ async function main() {
       '',
       '## 한계',
       '',
-      '- 애플리케이션 시계열 수집기가 없어 앱 지표는 unavailable로 기록했다.',
+      appMetrics.valid
+        ? '- 애플리케이션 지표는 Run 시작·종료 `/metrics` snapshot의 차이로 기록했다.'
+        : '- 애플리케이션 지표가 불완전해 server-metrics의 missing 항목을 확인해야 한다.',
+      '- DB·Redis는 종료 시점 snapshot이며 세부 시계열은 아직 수집하지 않는다.',
       '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
       '',
       '## 다음 결정',
@@ -516,7 +615,10 @@ async function main() {
     process.stdout.write(
       `consistency audit: ${audit.consistency.pass ? 'PASS' : 'FAIL'}\n`,
     );
-    if (!audit.consistency.pass) process.exitCode = 2;
+    process.stdout.write(
+      `observability audit: ${appMetrics.valid ? 'PASS' : 'FAIL'}\n`,
+    );
+    if (!audit.consistency.pass || !appMetrics.valid) process.exitCode = 2;
   } finally {
     await pool.end().catch(() => undefined);
     redis.disconnect();

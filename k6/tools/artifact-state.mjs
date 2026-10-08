@@ -107,6 +107,10 @@ async function getPaths(config) {
     audit: path.join(resultDirectory, 'consistency-audit.json'),
     metricsTemp: path.join(resultDirectory, '.server-metrics.json.tmp'),
     metrics: path.join(resultDirectory, 'server-metrics.json'),
+    metricsBaselineTemp: path.join(
+      resultDirectory,
+      '.app-metrics-baseline.json.tmp',
+    ),
     reportTemp: path.join(resultDirectory, '.report.md.tmp'),
     report: path.join(resultDirectory, 'report.md'),
     checksums: path.join(resultDirectory, 'checksums.sha256'),
@@ -210,7 +214,7 @@ function validateAudit(audit, config) {
 function validateServerMetrics(metrics, config) {
   if (
     !metrics ||
-    metrics.schemaVersion !== 1 ||
+    ![1, 2].includes(metrics.schemaVersion) ||
     metrics.runId !== config.runId ||
     !metrics.window ||
     !metrics.app ||
@@ -226,6 +230,15 @@ function validateServerMetrics(metrics, config) {
     if (component.status === 'unavailable' && !component.reason) {
       throw new Error('unavailable server metrics require a reason');
     }
+  }
+  if (
+    metrics.schemaVersion === 2 &&
+    (metrics.window.timezone !== 'UTC' ||
+      typeof metrics.app.valid !== 'boolean' ||
+      !Array.isArray(metrics.app.missingMetrics) ||
+      !metrics.pm2)
+  ) {
+    throw new Error('server metrics observability schema is invalid');
   }
   assertNoSecrets(metrics, 'server metrics');
 }
@@ -307,6 +320,7 @@ export async function markIncomplete(config, execution, statusReason) {
     paths.fixtureTemp,
     paths.auditTemp,
     paths.metricsTemp,
+    paths.metricsBaselineTemp,
     paths.reportTemp,
   ]) {
     try {
@@ -403,6 +417,9 @@ export async function finalizeArtifacts(config, execution, statusReason) {
     unlink(paths.fixtureTemp),
     unlink(paths.auditTemp),
     unlink(paths.metricsTemp),
+    unlink(paths.metricsBaselineTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
     unlink(paths.reportTemp),
   ]);
 }

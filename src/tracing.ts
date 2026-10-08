@@ -7,16 +7,22 @@ import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import 'dotenv/config';
 import {
   BatchSpanProcessor,
+  ParentBasedSampler,
   SpanProcessor,
   ReadableSpan,
   Span,
+  TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
 import { Context } from '@opentelemetry/api';
+import { readTracingConfig } from './observability/tracing-config';
 
-if (process.env.ENABLE_TRACING === 'true') {
+const tracingConfig = readTracingConfig();
+
+if (tracingConfig.enabled) {
   diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
 
-  const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+  const otelEndpoint =
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
   const traceUrl = otelEndpoint.endsWith('/v1/traces')
     ? otelEndpoint
     : `${otelEndpoint}/v1/traces`;
@@ -26,7 +32,7 @@ if (process.env.ENABLE_TRACING === 'true') {
   };
 
   const traceExporter = new OTLPTraceExporter(exporterOptions);
-  
+
   // Use BatchSpanProcessor with custom configuration for high-load optimization
   const batchSpanProcessor = new BatchSpanProcessor(traceExporter, {
     // Reduce delay to 1 second for more frequent exports under high load
@@ -37,7 +43,8 @@ if (process.env.ENABLE_TRACING === 'true') {
     maxQueueSize: 10000,
   });
 
-  // Custom SpanProcessor to filter spans with duration < 1s
+  // Sampling limits trace volume; the duration filter is separately tunable so
+  // normal latency spans can be retained during performance comparisons.
   class DurationFilterSpanProcessor implements SpanProcessor {
     constructor(private readonly processor: SpanProcessor) {}
 
@@ -51,8 +58,7 @@ if (process.env.ENABLE_TRACING === 'true') {
         const [seconds, nanoseconds] = span.duration;
         const durationMs = seconds * 1000 + nanoseconds / 1000000;
 
-        // Save spans with duration >= 1000ms (1s)
-        if (durationMs >= 1000) {
+        if (durationMs >= tracingConfig.minSpanDurationMs) {
           this.processor.onEnd(span);
         }
       }
@@ -73,7 +79,9 @@ if (process.env.ENABLE_TRACING === 'true') {
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'fast_pass',
     }),
-    // Sampler removed implies AlwaysOnSampler (100%), but we filter at SpanProcessor
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(tracingConfig.sampleRatio),
+    }),
   });
 
   // Export nothing, just start

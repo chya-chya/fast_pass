@@ -23,6 +23,9 @@ function validEnvironment(overrides = {}) {
     EXPECTED_MIGRATION_ID: '20260105075934',
     EXPECTED_DB_TLS_MODE: 'disable',
     EXPECTED_REDIS_TLS_MODE: 'disable',
+    EXPECTED_TRACING_ENABLED: 'false',
+    EXPECTED_OTEL_TRACE_SAMPLE_RATIO: '0.1',
+    EXPECTED_OTEL_MIN_SPAN_DURATION_MS: '0',
     TEST_PREFLIGHT_TOKEN: 't'.repeat(32),
     ...overrides,
   };
@@ -112,6 +115,9 @@ test('public configuration omits tokens and connection strings', () => {
   assert.doesNotMatch(serialized, /postgres(?:ql)?:\/\//i);
   assert.doesNotMatch(serialized, /redis(?:s)?:\/\//i);
   assert.equal(publicConfig.remoteExecutionEnabled, false);
+  assert.equal(publicConfig.expectedTracingEnabled, false);
+  assert.equal(publicConfig.expectedTraceSampleRatio, 0.1);
+  assert.equal(publicConfig.expectedMinSpanDurationMs, 0);
 });
 
 test('uses the exact 1000-by-50 inventory defaults', () => {

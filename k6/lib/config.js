@@ -80,6 +80,17 @@ function parseInteger(name, rawValue, defaultValue, minimum, maximum, errors) {
   return value;
 }
 
+function parseNumber(name, rawValue, defaultValue, minimum, maximum, errors) {
+  const source =
+    rawValue === undefined || rawValue === '' ? String(defaultValue) : rawValue;
+  const value = Number(source);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    errors.push(`${name} must be between ${minimum} and ${maximum}`);
+    return defaultValue;
+  }
+  return value;
+}
+
 export function durationToMilliseconds(duration) {
   const match = DURATION_PATTERN.exec(duration);
   if (!match) return null;
@@ -237,6 +248,30 @@ export function loadConfig(
     env.EXPECTED_DB_TLS_MODE || CONFIG_DEFAULTS.expectedDbTlsMode;
   const expectedRedisTlsMode =
     env.EXPECTED_REDIS_TLS_MODE || CONFIG_DEFAULTS.expectedRedisTlsMode;
+  const expectedTracingEnabled =
+    (env.EXPECTED_TRACING_ENABLED || 'false') === 'true';
+  if (
+    env.EXPECTED_TRACING_ENABLED &&
+    !['true', 'false'].includes(env.EXPECTED_TRACING_ENABLED)
+  ) {
+    errors.push('EXPECTED_TRACING_ENABLED must be true or false');
+  }
+  const expectedTraceSampleRatio = parseNumber(
+    'EXPECTED_OTEL_TRACE_SAMPLE_RATIO',
+    env.EXPECTED_OTEL_TRACE_SAMPLE_RATIO,
+    0.1,
+    0.0001,
+    1,
+    errors,
+  );
+  const expectedMinSpanDurationMs = parseInteger(
+    'EXPECTED_OTEL_MIN_SPAN_DURATION_MS',
+    env.EXPECTED_OTEL_MIN_SPAN_DURATION_MS,
+    0,
+    0,
+    60000,
+    errors,
+  );
 
   if (requireExecution) {
     validateSafeIdentifier('RUN_ID', runId, errors);
@@ -335,6 +370,9 @@ export function loadConfig(
     expectedMigrationId,
     expectedDbTlsMode,
     expectedRedisTlsMode,
+    expectedTracingEnabled,
+    expectedTraceSampleRatio,
+    expectedMinSpanDurationMs,
     allowTestDataMutation: env.ALLOW_TEST_DATA_MUTATION === 'true',
     resultDir: `k6/results/${runId}`,
     summaryTempPath: `k6/results/${runId}/.summary.json.tmp`,
@@ -370,6 +408,9 @@ export function toPublicConfig(config) {
     expectedMigrationId: config.expectedMigrationId,
     expectedDbTlsMode: config.expectedDbTlsMode,
     expectedRedisTlsMode: config.expectedRedisTlsMode,
+    expectedTracingEnabled: config.expectedTracingEnabled,
+    expectedTraceSampleRatio: config.expectedTraceSampleRatio,
+    expectedMinSpanDurationMs: config.expectedMinSpanDurationMs,
     resultDir: config.resultDir,
     remoteExecutionEnabled: false,
   };

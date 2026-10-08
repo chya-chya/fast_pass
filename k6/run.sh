@@ -62,6 +62,7 @@ if ! node k6/tools/preflight.mjs; then
   exit 1
 fi
 node k6/tools/artifact-state.mjs preflight
+node k6/tools/capture-app-metrics.mjs
 
 set +e
 K6_NO_USAGE_REPORT=true k6 run "${scenario_script}"
