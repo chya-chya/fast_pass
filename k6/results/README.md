@@ -127,6 +127,19 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
 
+## 8단계 관측성 검증 기록
+
+2026-10-08에 clean commit `6c48a9e850d6db2053e8441652e459bfde9b1a26`에서 `local-smoke-20261008032627-49293` Run을 실행했다. consistency와 observability audit가 모두 `PASS`이며 앱 metric은 `available`, `valid=true`, 누락 0건이다.
+
+- request / accepted / enqueue / processed / persistence sample: `1 / 1 / 1 / 1 / 1`
+- queue depth / processing / retry / DLQ: `0 / 0 / 0 / 0`
+- metric collection / retry scan complete: `1 / 1`
+- source: `gitDirty=false`
+- 상세 결과: [`local-smoke-20261008032627-49293`](./local-smoke-20261008032627-49293/)
+- 구현·검증 판정: [`PHASE8_VERIFICATION.md`](../../docs/performance/PHASE8_VERIFICATION.md)
+
+`local-smoke-20261008032334-46625`는 플랫폼별 heap metric 차이를 fail-closed로 발견한 진단 Run이다. `local-smoke-20261008032443-47827`은 수정 확인용 dirty Run이며 최종 근거로 사용하지 않는다.
+
 ## 7단계 Redis Streams 검증 기록
 
 2026-10-07에 terminal marker 조회 장애의 PEL 보존을 포함한 clean commit `029a10d17be4e6709ae1537c90f3aaead98e33e1`에서 `local-smoke-20261007114952-10914` Run을 실행했다. metadata의 `gitDirty=false`를 확인했고, `execution=COMPLETED`, `artifactSet=FINALIZED`, `preflight=VERIFIED`, consistency audit `PASS`로 종료됐다.
