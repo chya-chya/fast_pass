@@ -34,6 +34,13 @@ describe('TestRunController', () => {
     };
   }
 
+  function storedFixture(redis: ReturnType<typeof redisMock>): unknown {
+    const calls = redis.set.mock.calls as unknown[][];
+    const raw = calls[0]?.[1];
+    if (typeof raw !== 'string') throw new Error('fixture was not stored');
+    return JSON.parse(raw) as unknown;
+  }
+
   it('registers only identifiers under the exact run boundary', async () => {
     configureEnvironment();
     const redis = redisMock();
@@ -109,7 +116,7 @@ describe('TestRunController', () => {
         assignment: 'global_iteration_modulo',
       },
     });
-    const stored = JSON.parse(redis.set.mock.calls[0][1]);
+    const stored = storedFixture(redis);
     expect(stored).toMatchObject({
       expectedAccepted: 2,
       expectedConflicts: 2,
@@ -150,11 +157,58 @@ describe('TestRunController', () => {
         assignment: 'rebooking_sequence',
       },
     });
-    expect(JSON.parse(redis.set.mock.calls[0][1])).toMatchObject({
+    expect(storedFixture(redis)).toMatchObject({
       expectedAccepted: 2,
       expectedConflicts: 0,
       requestsPerSeat: 2,
     });
+  });
+
+  it('registers isolated capacity profiles with a bounded request budget', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const controller = new TestRunController(redis);
+    await controller.registerFixture('capacity-run', 'p'.repeat(32), {
+      scenario: 'capacity-vu',
+      capacityProfile: 'unique-seat',
+      cacheProfile: 'warm',
+      userBehavior: 'reserve-then-think',
+      thinkTimeMs: 1000,
+      userIds: ['user-1', 'user-2'],
+      eventId: 'event-1',
+      performanceId: 'performance-1',
+      seatIds: ['seat-1', 'seat-2'],
+      requestManifest: {
+        schemaVersion: 2,
+        requestBudget: 2,
+        assignment: 'global_iteration_unique_seat',
+      },
+    });
+    expect(storedFixture(redis)).toMatchObject({
+      scenario: 'capacity-vu',
+      capacityProfile: 'unique-seat',
+      thinkTimeMs: 1000,
+      requestManifest: { schemaVersion: 2, requestBudget: 2 },
+    });
+
+    await expect(
+      controller.registerFixture('mixed-run', 'p'.repeat(32), {
+        scenario: 'capacity-vu',
+        capacityProfile: 'unique-seat',
+        cacheProfile: 'warm',
+        userBehavior: 'reserve-then-think',
+        thinkTimeMs: 1000,
+        userIds: ['user-1'],
+        eventId: 'event-1',
+        performanceId: 'performance-1',
+        seatIds: ['seat-1'],
+        requestManifest: {
+          schemaVersion: 2,
+          requestBudget: 2,
+          assignment: 'global_iteration_hot_seat',
+        },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects duplicate fixture IDs and existing runs', async () => {

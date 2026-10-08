@@ -55,3 +55,37 @@ test('reports failed thresholds without copying response data', () => {
     { metric: 'timeout', threshold: 'count==0' },
   ]);
 });
+
+test('records stage actual RPS and an exploratory capacity verdict', () => {
+  const summary = buildSummary(
+    {
+      runId: 'capacity-summary',
+      scenario: 'capacity-vu',
+      capacityTargets: [1, 2, 3, 4],
+      capacityRampDuration: '1s',
+      capacityRampDurationMs: 1000,
+      capacityStageHolds: ['2s', '2s', '2s', '2s'],
+      capacityStageHoldMs: [2000, 2000, 2000, 2000],
+      capacityProfile: 'unique-seat',
+      capacityUserBehavior: 'reserve-then-think',
+      capacityThinkTime: '1s',
+      capacityRequestBudget: 64,
+    },
+    {
+      metrics: {
+        capacity_stage_1_requests: {
+          type: 'counter',
+          contains: 'default',
+          values: { count: 6, rate: 2 },
+          thresholds: {},
+        },
+      },
+    },
+  );
+  assert.equal(summary.capacityStages[0].actualRps, 2);
+  assert.deepEqual(summary.verdict, {
+    kind: 'exploratory',
+    status: 'NOT_APPLICABLE',
+    sloThresholdsPassed: true,
+  });
+});

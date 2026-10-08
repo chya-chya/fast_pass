@@ -1,3 +1,8 @@
+import {
+  CAPACITY_PROFILES,
+  estimateCapacityRequestBudget,
+} from './capacity.js';
+
 export const CONFIG_DEFAULTS = Object.freeze({
   baseUrl: 'http://127.0.0.1:3000',
   rps: 1,
@@ -34,6 +39,13 @@ export const SCENARIO_DEFAULTS = Object.freeze({
     userCount: 1,
     seatCount: 1,
     scriptPath: 'k6/scenarios/rebooking.js',
+  }),
+  'capacity-vu': Object.freeze({
+    vus: 2000,
+    duration: '14m30s',
+    userCount: 2000,
+    seatCount: 20000,
+    scriptPath: 'k6/scenarios/capacity-vu.js',
   }),
 });
 
@@ -89,6 +101,54 @@ function parseNumber(name, rawValue, defaultValue, minimum, maximum, errors) {
     return defaultValue;
   }
   return value;
+}
+
+function parseDuration(
+  name,
+  rawValue,
+  defaultValue,
+  minimumMs,
+  maximumMs,
+  errors,
+) {
+  const value = rawValue || defaultValue;
+  const milliseconds = durationToMilliseconds(value);
+  if (
+    milliseconds === null ||
+    milliseconds < minimumMs ||
+    milliseconds > maximumMs
+  ) {
+    errors.push(`${name} must be between ${minimumMs}ms and ${maximumMs}ms`);
+    return {
+      value: defaultValue,
+      milliseconds: durationToMilliseconds(defaultValue),
+    };
+  }
+  return { value, milliseconds };
+}
+
+function parseCapacityTargets(rawValue, errors) {
+  const rawTargets = (rawValue || '100,500,1000,2000').split(',');
+  if (
+    rawTargets.length !== 4 ||
+    rawTargets.some((value) => !/^[1-9][0-9]*$/.test(value.trim()))
+  ) {
+    errors.push(
+      'CAPACITY_VU_STAGES must contain exactly four positive integers',
+    );
+    return [100, 500, 1000, 2000];
+  }
+  const targets = rawTargets.map((value) => Number(value.trim()));
+  if (
+    targets.some((value) => value > 10000) ||
+    targets.some((value, index) => index > 0 && value <= targets[index - 1])
+  ) {
+    errors.push(
+      'CAPACITY_VU_STAGES must be strictly increasing and at most 10000',
+    );
+    return [100, 500, 1000, 2000];
+  }
+  return targets;
 }
 
 export function durationToMilliseconds(duration) {
@@ -167,41 +227,124 @@ export function loadConfig(
   const target = parseBaseUrl(env.BASE_URL, env, errors);
   const consistencyScenario = scenario.startsWith('consistency-');
   const rebookingScenario = scenario === 'rebooking';
+  const capacityScenario = scenario === 'capacity-vu';
+  const capacityProfile = env.CAPACITY_PROFILE || 'unique-seat';
+  if (capacityScenario && !CAPACITY_PROFILES.includes(capacityProfile)) {
+    errors.push(
+      `CAPACITY_PROFILE must be one of ${CAPACITY_PROFILES.join(', ')}`,
+    );
+  }
+  const capacityTargets = capacityScenario
+    ? parseCapacityTargets(env.CAPACITY_VU_STAGES, errors)
+    : [];
+  const capacityRamp = capacityScenario
+    ? parseDuration(
+        'CAPACITY_RAMP_DURATION',
+        env.CAPACITY_RAMP_DURATION,
+        '30s',
+        1000,
+        10 * 60 * 1000,
+        errors,
+      )
+    : { value: null, milliseconds: 0 };
+  const capacityHolds = capacityScenario
+    ? capacityTargets.map((_, index) =>
+        parseDuration(
+          `CAPACITY_STAGE_HOLD_${index + 1}`,
+          env[`CAPACITY_STAGE_HOLD_${index + 1}`],
+          '3m',
+          1000,
+          60 * 60 * 1000,
+          errors,
+        ),
+      )
+    : [];
+  const thinkTime = capacityScenario
+    ? parseDuration(
+        'CAPACITY_THINK_TIME',
+        env.CAPACITY_THINK_TIME,
+        '60s',
+        100,
+        5 * 60 * 1000,
+        errors,
+      )
+    : { value: null, milliseconds: 0 };
+  const capacityUserBehavior =
+    env.CAPACITY_USER_BEHAVIOR || 'reserve-then-think';
+  if (
+    capacityScenario &&
+    !['reserve-then-think', 'think-then-reserve'].includes(capacityUserBehavior)
+  ) {
+    errors.push(
+      'CAPACITY_USER_BEHAVIOR must be reserve-then-think or think-then-reserve',
+    );
+  }
+  const capacityRequiredRequestBudget = capacityScenario
+    ? estimateCapacityRequestBudget(
+        capacityTargets,
+        capacityHolds.map((hold) => hold.milliseconds),
+        capacityRamp.milliseconds,
+        thinkTime.milliseconds,
+      )
+    : 0;
+  const capacityRequestBudget = capacityScenario
+    ? parseInteger(
+        'CAPACITY_REQUEST_BUDGET',
+        env.CAPACITY_REQUEST_BUDGET,
+        Math.max(20000, capacityRequiredRequestBudget),
+        1,
+        25000,
+        errors,
+      )
+    : 0;
   const vus = parseInteger(
     'VU',
-    env.VU,
-    defaults.vus,
+    capacityScenario ? String(Math.max(...capacityTargets)) : env.VU,
+    capacityScenario ? Math.max(...capacityTargets) : defaults.vus,
     1,
-    consistencyScenario ? 1000 : 5,
+    consistencyScenario ? 1000 : capacityScenario ? 10000 : 5,
     errors,
   );
-  const rps = parseInteger(
-    'RPS',
-    env.RPS,
-    CONFIG_DEFAULTS.rps,
-    1,
-    10000,
-    errors,
-  );
+  const rps = capacityScenario
+    ? null
+    : parseInteger('RPS', env.RPS, CONFIG_DEFAULTS.rps, 1, 10000, errors);
+  if (capacityScenario && env.RPS !== undefined && env.RPS !== '') {
+    errors.push('RPS must not be set for capacity-vu; actual RPS is measured');
+  }
   const userCount = parseInteger(
     'USER_COUNT',
     env.USER_COUNT,
-    defaults.userCount,
+    capacityScenario ? vus : defaults.userCount,
     1,
-    consistencyScenario ? 1000 : 5,
+    consistencyScenario ? 1000 : capacityScenario ? 10000 : 5,
     errors,
   );
   const seatCount = parseInteger(
     'SEAT_COUNT',
     env.SEAT_COUNT,
-    defaults.seatCount,
+    capacityScenario
+      ? capacityProfile === 'unique-seat'
+        ? capacityRequestBudget
+        : 1
+      : defaults.seatCount,
     1,
-    100,
+    capacityScenario ? 25000 : 100,
     errors,
   );
-  const duration = env.DURATION || defaults.duration;
-  const durationMs = durationToMilliseconds(duration);
-  if (durationMs === null || durationMs < 1000 || durationMs > 60000) {
+  const capacityDurationMs = capacityScenario
+    ? capacityRamp.milliseconds * (capacityTargets.length + 1) +
+      capacityHolds.reduce((total, hold) => total + hold.milliseconds, 0)
+    : 0;
+  const duration = capacityScenario
+    ? `${capacityDurationMs}ms`
+    : env.DURATION || defaults.duration;
+  const durationMs = capacityScenario
+    ? capacityDurationMs
+    : durationToMilliseconds(duration);
+  if (
+    !capacityScenario &&
+    (durationMs === null || durationMs < 1000 || durationMs > 60000)
+  ) {
     errors.push('DURATION must be between 1s and 60s');
   }
   if (consistencyScenario && userCount !== vus) {
@@ -227,6 +370,36 @@ export function loadConfig(
   }
   if (rebookingScenario && (vus !== 1 || userCount !== 1 || seatCount !== 1)) {
     errors.push('rebooking requires exactly 1 VU, 1 user, and 1 seat');
+  }
+  if (capacityScenario) {
+    if (vus !== Math.max(...capacityTargets)) {
+      errors.push('capacity-vu VU must equal the maximum configured stage');
+    }
+    if (capacityRequestBudget < capacityRequiredRequestBudget) {
+      errors.push(
+        `CAPACITY_REQUEST_BUDGET must be at least ${capacityRequiredRequestBudget} for the configured stages and think time`,
+      );
+    }
+    if (
+      (capacityProfile === 'unique-seat' &&
+        seatCount !== capacityRequestBudget) ||
+      (capacityProfile === 'hot-seat' && seatCount !== 1)
+    ) {
+      errors.push(
+        'SEAT_COUNT must equal CAPACITY_REQUEST_BUDGET for unique-seat and 1 for hot-seat',
+      );
+    }
+    if (
+      requireExecution &&
+      target.isLocal &&
+      (vus > 20 ||
+        capacityDurationMs > 2 * 60 * 1000 ||
+        capacityRequestBudget > 500)
+    ) {
+      errors.push(
+        'local capacity-vu execution is limited to 20 VU, 2m, and 500 requests',
+      );
+    }
   }
   const cacheProfile = env.CACHE_PROFILE || 'warm';
   if (!['warm', 'cold'].includes(cacheProfile)) {
@@ -334,7 +507,7 @@ export function loadConfig(
     throw new Error(`k6 configuration rejected: ${errors.join('; ')}`);
   }
 
-  const totalRequests = rebookingScenario ? 2 : vus;
+  const totalRequests = capacityScenario ? null : rebookingScenario ? 2 : vus;
   return Object.freeze({
     scenario,
     scriptPath: defaults.scriptPath,
@@ -349,17 +522,34 @@ export function loadConfig(
     userCount,
     seatCount,
     cacheProfile,
-    executor: 'per-vu-iterations',
-    iterationsPerVu: 1,
-    totalIterations: vus,
+    executor: capacityScenario ? 'ramping-vus' : 'per-vu-iterations',
+    iterationsPerVu: capacityScenario ? null : 1,
+    totalIterations: capacityScenario ? null : vus,
     totalRequests,
-    requestsPerSeat: totalRequests / seatCount,
-    expectedAccepted: rebookingScenario
-      ? 2
+    requestsPerSeat: capacityScenario ? null : totalRequests / seatCount,
+    expectedAccepted: capacityScenario
+      ? null
+      : rebookingScenario
+        ? 2
+        : consistencyScenario
+          ? seatCount
+          : vus,
+    expectedConflicts: capacityScenario
+      ? null
       : consistencyScenario
-        ? seatCount
-        : vus,
-    expectedConflicts: consistencyScenario ? vus - seatCount : 0,
+        ? vus - seatCount
+        : 0,
+    capacityProfile: capacityScenario ? capacityProfile : null,
+    capacityTargets,
+    capacityRampDuration: capacityRamp.value,
+    capacityRampDurationMs: capacityRamp.milliseconds,
+    capacityStageHolds: capacityHolds.map((hold) => hold.value),
+    capacityStageHoldMs: capacityHolds.map((hold) => hold.milliseconds),
+    capacityRequestBudget,
+    capacityRequiredRequestBudget,
+    capacityUserBehavior: capacityScenario ? capacityUserBehavior : null,
+    capacityThinkTime: thinkTime.value,
+    capacityThinkTimeMs: thinkTime.milliseconds,
     testEnvironment: env.TEST_ENVIRONMENT || '',
     testEnvId,
     testDatabaseName,
@@ -398,6 +588,14 @@ export function toPublicConfig(config) {
     requestsPerSeat: config.requestsPerSeat,
     expectedAccepted: config.expectedAccepted,
     expectedConflicts: config.expectedConflicts,
+    capacityProfile: config.capacityProfile,
+    capacityTargets: config.capacityTargets,
+    capacityRampDuration: config.capacityRampDuration,
+    capacityStageHolds: config.capacityStageHolds,
+    capacityRequestBudget: config.capacityRequestBudget,
+    capacityRequiredRequestBudget: config.capacityRequiredRequestBudget,
+    capacityUserBehavior: config.capacityUserBehavior,
+    capacityThinkTime: config.capacityThinkTime,
     testEnvironment: config.testEnvironment,
     testEnvId: config.testEnvId,
     testDatabaseName: config.testDatabaseName,

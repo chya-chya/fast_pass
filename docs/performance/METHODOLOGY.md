@@ -6,6 +6,28 @@
 
 이 문서의 PromQL은 예시 dashboard 정의이며 실제 처리량 수치를 주장하지 않는다. 원격 모니터링 배포와 원격 부하는 8단계 범위가 아니다.
 
+## VU Capacity 탐색 계약
+
+`capacity-vu`는 폐쇄형 `ramping-vus` 탐색이며 목표 RPS를 설정하지 않는다. 기본 target은 `100 → 500 → 1,000 → 2,000 VU`, 각 target의 기본 hold는 3분이고 target 사이 ramp는 30초다. 단계별 요청 수를 해당 ramp+hold 측정창으로 나눈 실제 RPS를 결과에 남긴다. 마지막 단계는 종료 ramp까지 포함한다. 이 값은 target RPS나 지속 가능한 처리량이 아니다.
+
+환경변수 계약은 다음과 같다.
+
+| 설정                        | 기본값                  | 의미                                                    |
+| --------------------------- | ----------------------- | ------------------------------------------------------- |
+| `CAPACITY_VU_STAGES`        | `100,500,1000,2000`     | 정확히 네 개의 증가하는 VU target                       |
+| `CAPACITY_RAMP_DURATION`    | `30s`                   | 각 target과 종료 0 VU까지의 ramp 시간                   |
+| `CAPACITY_STAGE_HOLD_1`~`4` | 각각 `3m`               | target별 유지 시간                                      |
+| `CAPACITY_PROFILE`          | `unique-seat`           | `unique-seat` 또는 `hot-seat`; 반드시 별도 Run으로 실행 |
+| `CAPACITY_USER_BEHAVIOR`    | `reserve-then-think`    | `reserve-then-think` 또는 `think-then-reserve`          |
+| `CAPACITY_THINK_TIME`       | `60s`                   | iteration 사이 사용자 대기 시간                         |
+| `CAPACITY_REQUEST_BUDGET`   | `20,000` 이상 자동 계산 | 실행 전에 확보해야 하는 최대 요청·고유 좌석 예산        |
+
+`unique-seat`는 전역 `iterationInTest`를 request ID와 좌석 index로 사용해 모든 요청을 서로 다른 좌석에 보낸다. `hot-seat`는 같은 전역 iteration ID로 사용자와 request ID를 구분하되 한 좌석에만 보낸다. 로컬 `__VU`는 배정 키로 사용하지 않는다. 사용자·token, 공연과 좌석은 setup에서 미리 만들고 load 측정 구간에서 제외한다. 보수적 예산 계산보다 fixture가 작으면 실행 전에 거부하며, 실행 중 예산을 넘으면 테스트를 중단한다.
+
+성공, 예상 충돌, 예상하지 않은 오류와 timeout은 별도 Trend/Counter로 기록한다. p95/p99 threshold도 outcome별 metric에만 적용하며 전체 `http_req_duration`을 정상 예약 latency로 해석하지 않는다. Hot-seat의 최초 accepted 1건과 이후 expected conflict도 별도 metric으로 남는다.
+
+판정 종류는 `exploratory`, 상태는 `NOT_APPLICABLE`이다. threshold 초과는 SLO 관측값으로 보존하지만 회귀 PASS/FAIL 또는 고정 RPS 달성 실패로 바꾸지 않는다. 실행 유효성은 전역 요청 manifest, accepted/processed/persisted ID, unexpected error, 앱 지표 완전성, 자원 포화와 queue/drain을 함께 확인한다. 원격 승인 환경에서 단계별 시계열을 수집하기 전에는 capacity 한계나 지속 가능한 처리량을 주장하지 않는다.
+
 ## 지표 계약
 
 | 지표                                           | 종류      | label             | 의미                                                                                            |

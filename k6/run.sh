@@ -74,10 +74,15 @@ K6_EXIT_STATUS="${k6_status}" node k6/tools/audit.mjs
 audit_status=$?
 set -e
 
-if [[ ${k6_status} -ne 0 ]]; then
+k6_effective_status=${k6_status}
+if [[ "${SCENARIO}" == 'capacity-vu' && ${k6_status} -eq 99 ]]; then
+  k6_effective_status=0
+fi
+
+if [[ ${k6_effective_status} -ne 0 ]]; then
   execution='FAILED'
   reason='K6_FAILED'
-  final_status=${k6_status}
+  final_status=${k6_effective_status}
 elif [[ ${audit_status} -ne 0 ]]; then
   execution='FAILED'
   reason='AUDIT_FAILED'

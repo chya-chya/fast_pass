@@ -34,6 +34,15 @@ const SUMMARY_METRICS = new Set([
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
+  'reservation_requests',
+  'accepted_duration_ms',
+  'expected_conflict_duration_ms',
+  'unexpected_error_duration_ms',
+  'timeout_duration_ms',
+  'capacity_stage_1_requests',
+  'capacity_stage_2_requests',
+  'capacity_stage_3_requests',
+  'capacity_stage_4_requests',
 ]);
 const SENSITIVE_KEY =
   /(authorization|password|secret|access.?token|refresh.?token|database.?url|redis.?url|preflight.?token)/i;
@@ -384,6 +393,7 @@ export async function finalizeArtifacts(config, execution, statusReason) {
       pass: audit.consistency.pass,
       reasons: audit.consistency.reasons,
     },
+    verdict: summary.verdict,
     artifacts: [
       'metadata.json',
       'fixture-manifest.json',

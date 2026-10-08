@@ -7,8 +7,8 @@ repository_root="$(cd "${script_dir}/../.." && pwd -P)"
 cd "${repository_root}"
 
 scenario="${1:-smoke}"
-if [[ $# -gt 1 ]] || [[ ! "${scenario}" =~ ^(smoke|consistency-one-seat|consistency-inventory|rebooking)$ ]]; then
-  echo 'usage: k6/tools/run-local-integration.sh [smoke|consistency-one-seat|consistency-inventory|rebooking]' >&2
+if [[ $# -gt 1 ]] || [[ ! "${scenario}" =~ ^(smoke|consistency-one-seat|consistency-inventory|rebooking|capacity-vu)$ ]]; then
+  echo 'usage: k6/tools/run-local-integration.sh [smoke|consistency-one-seat|consistency-inventory|rebooking|capacity-vu]' >&2
   exit 64
 fi
 
@@ -94,6 +94,25 @@ case "${scenario}" in
     export VU='1'
     export USER_COUNT='1'
     export SEAT_COUNT='1'
+    ;;
+  capacity-vu)
+    unset RPS
+    export CAPACITY_PROFILE="${CAPACITY_PROFILE:-unique-seat}"
+    export CAPACITY_VU_STAGES='1,2,3,4'
+    export CAPACITY_RAMP_DURATION='1s'
+    export CAPACITY_STAGE_HOLD_1='2s'
+    export CAPACITY_STAGE_HOLD_2='2s'
+    export CAPACITY_STAGE_HOLD_3='2s'
+    export CAPACITY_STAGE_HOLD_4='2s'
+    export CAPACITY_THINK_TIME='1s'
+    export CAPACITY_USER_BEHAVIOR='reserve-then-think'
+    export CAPACITY_REQUEST_BUDGET='64'
+    export USER_COUNT='4'
+    if [[ "${CAPACITY_PROFILE}" == 'unique-seat' ]]; then
+      export SEAT_COUNT='64'
+    else
+      export SEAT_COUNT='1'
+    fi
     ;;
 esac
 
@@ -185,7 +204,7 @@ k6/run.sh
   cd "k6/results/${RUN_ID}"
   shasum -a 256 -c checksums.sha256 >/dev/null
 )
-node -e "const fs=require('node:fs');const root='k6/results/'+process.env.RUN_ID;const required=['metadata.json','fixture-manifest.json','summary.json','consistency-audit.json','server-metrics.json','report.md','checksums.sha256'];for(const name of required){if(!fs.statSync(root+'/'+name).isFile())process.exit(1)}const metadata=JSON.parse(fs.readFileSync(root+'/metadata.json','utf8'));const summary=JSON.parse(fs.readFileSync(root+'/summary.json','utf8'));const audit=JSON.parse(fs.readFileSync(root+'/consistency-audit.json','utf8'));const metrics=JSON.parse(fs.readFileSync(root+'/server-metrics.json','utf8'));const audited=process.env.SCENARIO!=='smoke';if(metadata.execution!=='COMPLETED'||metadata.artifactSet!=='FINALIZED'||metadata.preflight!=='VERIFIED'||metadata.audit?.pass!==true||summary.scenario!==process.env.SCENARIO||summary.thresholdPassed!==true||audit.consistency?.pass!==true||audit.counters?.workerInFlight!==0||metrics.schemaVersion!==2||metrics.app?.status!=='available'||metrics.app?.valid!==true||(audited&&(!audit.requestAudit||audit.requestAudit.actualAccepted!==summary.dataset.expectedAccepted||audit.requestAudit.actualConflicts!==summary.dataset.expectedConflicts))||(process.env.SCENARIO==='rebooking'&&(!audit.rebooking||audit.rebooking.firstStatus!=='CANCELLED'||!['PENDING','CONFIRMED'].includes(audit.rebooking.secondStatus)||audit.rebooking.activeCount!==1))){process.exit(1)}"
+node -e "const fs=require('node:fs');const root='k6/results/'+process.env.RUN_ID;const required=['metadata.json','fixture-manifest.json','summary.json','consistency-audit.json','server-metrics.json','report.md','checksums.sha256'];for(const name of required){if(!fs.statSync(root+'/'+name).isFile())process.exit(1)}const metadata=JSON.parse(fs.readFileSync(root+'/metadata.json','utf8'));const summary=JSON.parse(fs.readFileSync(root+'/summary.json','utf8'));const audit=JSON.parse(fs.readFileSync(root+'/consistency-audit.json','utf8'));const metrics=JSON.parse(fs.readFileSync(root+'/server-metrics.json','utf8'));const audited=process.env.SCENARIO!=='smoke'&&process.env.SCENARIO!=='capacity-vu';const capacity=process.env.SCENARIO==='capacity-vu';if(metadata.execution!=='COMPLETED'||metadata.artifactSet!=='FINALIZED'||metadata.preflight!=='VERIFIED'||metadata.audit?.pass!==true||summary.scenario!==process.env.SCENARIO||summary.thresholdPassed!==true||audit.consistency?.pass!==true||audit.counters?.workerInFlight!==0||metrics.schemaVersion!==2||metrics.app?.status!=='available'||metrics.app?.valid!==true||(audited&&(!audit.requestAudit||audit.requestAudit.actualAccepted!==summary.dataset.expectedAccepted||audit.requestAudit.actualConflicts!==summary.dataset.expectedConflicts))||(capacity&&(!audit.requestAudit||metadata.verdict?.kind!=='exploratory'||metadata.verdict?.status!=='NOT_APPLICABLE'||summary.dataset.capacityProfile!==process.env.CAPACITY_PROFILE))||(process.env.SCENARIO==='rebooking'&&(!audit.rebooking||audit.rebooking.firstStatus!=='CANCELLED'||!['PENDING','CONFIRMED'].includes(audit.rebooking.secondStatus)||audit.rebooking.activeCount!==1))){process.exit(1)}"
 node k6/tools/cleanup.mjs --dry-run >/dev/null
 if rg -n -i 'bearer[[:space:]]|postgres(?:ql)?://|redis(?:s)?://|password|secret|token' "k6/results/${RUN_ID}" >/dev/null; then
   echo 'integration rejected: sensitive content found in artifacts' >&2

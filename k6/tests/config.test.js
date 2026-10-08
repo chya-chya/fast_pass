@@ -171,3 +171,52 @@ test('configures rebooking as one iteration containing two accepted requests', (
   assert.equal(config.expectedAccepted, 2);
   assert.equal(config.expectedConflicts, 0);
 });
+
+test('uses four ramping VU stages without a target RPS', () => {
+  const config = loadConfig({ SCENARIO: 'capacity-vu' });
+  assert.equal(config.executor, 'ramping-vus');
+  assert.deepEqual(config.capacityTargets, [100, 500, 1000, 2000]);
+  assert.deepEqual(config.capacityStageHolds, ['3m', '3m', '3m', '3m']);
+  assert.equal(config.capacityThinkTime, '60s');
+  assert.equal(config.rps, null);
+  assert.equal(config.capacityRequestBudget, 20000);
+});
+
+test('accepts only a bounded reduced local capacity profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'capacity-vu',
+      RUN_ID: 'capacity-local',
+      RPS: undefined,
+      VU: undefined,
+      DURATION: undefined,
+      CAPACITY_PROFILE: 'unique-seat',
+      CAPACITY_VU_STAGES: '1,2,3,4',
+      CAPACITY_RAMP_DURATION: '1s',
+      CAPACITY_STAGE_HOLD_1: '2s',
+      CAPACITY_STAGE_HOLD_2: '2s',
+      CAPACITY_STAGE_HOLD_3: '2s',
+      CAPACITY_STAGE_HOLD_4: '2s',
+      CAPACITY_THINK_TIME: '1s',
+      CAPACITY_REQUEST_BUDGET: '64',
+      USER_COUNT: '4',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.vus, 4);
+  assert.equal(config.capacityRequiredRequestBudget, 38);
+  assert.equal(config.seatCount, 64);
+});
+
+test('rejects RPS targets and undersized capacity fixtures', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'capacity-vu',
+        RPS: '100',
+        CAPACITY_REQUEST_BUDGET: '10',
+      }),
+    /RPS must not be set|must be at least/,
+  );
+});

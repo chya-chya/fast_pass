@@ -11,6 +11,15 @@ const ALLOWED_METRICS = Object.freeze([
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
+  'reservation_requests',
+  'accepted_duration_ms',
+  'expected_conflict_duration_ms',
+  'unexpected_error_duration_ms',
+  'timeout_duration_ms',
+  'capacity_stage_1_requests',
+  'capacity_stage_2_requests',
+  'capacity_stage_3_requests',
+  'capacity_stage_4_requests',
 ]);
 
 function cleanMetric(metric) {
@@ -41,6 +50,30 @@ export function buildSummary(config, data) {
     }
   }
 
+  const capacityStages =
+    config.scenario === 'capacity-vu'
+      ? config.capacityTargets.map((target, index) => {
+          const requestCount = Number(
+            metrics[`capacity_stage_${index + 1}_requests`]?.values?.count || 0,
+          );
+          const durationMs =
+            config.capacityRampDurationMs +
+            config.capacityStageHoldMs[index] +
+            (index === config.capacityTargets.length - 1
+              ? config.capacityRampDurationMs
+              : 0);
+          return {
+            stage: index + 1,
+            targetVus: target,
+            rampDuration: config.capacityRampDuration,
+            holdDuration: config.capacityStageHolds[index],
+            measurementWindowMs: durationMs,
+            requestCount,
+            actualRps: requestCount / (durationMs / 1000),
+          };
+        })
+      : null;
+
   return {
     schemaVersion: 1,
     runId: config.runId,
@@ -54,10 +87,26 @@ export function buildSummary(config, data) {
       expectedAccepted: config.expectedAccepted,
       expectedConflicts: config.expectedConflicts,
       requestsPerSeat: config.requestsPerSeat,
+      capacityProfile: config.capacityProfile,
+      userBehavior: config.capacityUserBehavior,
+      thinkTime: config.capacityThinkTime,
+      requestBudget: config.capacityRequestBudget,
     },
+    capacityStages,
     generatedAt: new Date().toISOString(),
     thresholdPassed: thresholdFailures.length === 0,
     thresholdFailures,
+    verdict:
+      config.scenario === 'capacity-vu'
+        ? {
+            kind: 'exploratory',
+            status: 'NOT_APPLICABLE',
+            sloThresholdsPassed: thresholdFailures.length === 0,
+          }
+        : {
+            kind: 'correctness',
+            status: thresholdFailures.length === 0 ? 'PASS' : 'FAIL',
+          },
     metrics,
   };
 }

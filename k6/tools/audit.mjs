@@ -11,6 +11,7 @@ import {
   drainSignature,
   isDrainCandidate,
 } from '../lib/audit.js';
+import { buildCapacityExpectedRequestManifest } from '../lib/capacity.js';
 import { isLoopbackHostname, loadConfig } from '../lib/config.js';
 import { buildExpectedRequestManifest } from '../lib/consistency.js';
 import {
@@ -392,17 +393,44 @@ async function main() {
       ...fixtureSource.seatIds.map((seatId) => `seat:${seatId}:status`),
     );
 
-    const consistencyFixture = fixtureSource.requestManifest
-      ? buildExpectedRequestManifest(
-          config.runId,
-          fixtureSource.requestManifest.totalRequests,
-          fixtureSource.userIds,
-          fixtureSource.seatIds,
-          fixtureSource.requestManifest.assignment,
-        )
-      : null;
     const metricCount = (name) =>
       Number(summary.metrics?.[name]?.values?.count || 0);
+    const capacityRequestCount = metricCount('reservation_requests');
+    const capacityFixture =
+      config.scenario === 'capacity-vu'
+        ? buildCapacityExpectedRequestManifest(
+            config.runId,
+            capacityRequestCount,
+            fixtureSource.userIds,
+            fixtureSource.seatIds,
+            fixtureSource.capacityProfile,
+            fixtureSource.requestManifest?.requestBudget,
+          )
+        : null;
+    const consistencyFixture =
+      config.scenario === 'capacity-vu'
+        ? capacityFixture
+        : fixtureSource.requestManifest
+          ? buildExpectedRequestManifest(
+              config.runId,
+              fixtureSource.requestManifest.totalRequests,
+              fixtureSource.userIds,
+              fixtureSource.seatIds,
+              fixtureSource.requestManifest.assignment,
+            )
+          : null;
+    const expectedAccepted =
+      config.scenario === 'capacity-vu'
+        ? fixtureSource.capacityProfile === 'unique-seat'
+          ? capacityRequestCount
+          : Math.min(capacityRequestCount, 1)
+        : fixtureSource.expectedAccepted;
+    const expectedConflicts =
+      config.scenario === 'capacity-vu'
+        ? fixtureSource.capacityProfile === 'hot-seat'
+          ? Math.max(capacityRequestCount - 1, 0)
+          : 0
+        : fixtureSource.expectedConflicts;
     const audit = buildConsistencyAudit({
       runId: config.runId,
       testEnvId: config.testEnvId,
@@ -412,13 +440,19 @@ async function main() {
       summaryConflicts: metricCount('expected_conflict'),
       summaryUnexpectedErrors: metricCount('unexpected_error'),
       summaryTimeouts: metricCount('timeout'),
-      summaryIterations: metricCount('iterations'),
+      summaryIterations:
+        config.scenario === 'capacity-vu'
+          ? capacityRequestCount
+          : metricCount('iterations'),
       summaryFirstAccepted: metricCount('rebooking_first_accepted'),
       summarySecondAccepted: metricCount('rebooking_second_accepted'),
-      expectedIterations: config.totalIterations,
+      expectedIterations:
+        config.scenario === 'capacity-vu'
+          ? capacityRequestCount
+          : config.totalIterations,
       scenario: config.scenario,
-      expectedAccepted: fixtureSource.expectedAccepted,
-      expectedConflicts: fixtureSource.expectedConflicts,
+      expectedAccepted,
+      expectedConflicts,
       expectedRequests: consistencyFixture?.requests,
       expectedRequestsPerSeat: consistencyFixture?.requestsPerSeat,
       actualRequests,
@@ -471,9 +505,15 @@ async function main() {
       scenario: fixtureSource.scenario || config.scenario,
       cacheProfile: fixtureSource.cacheProfile || null,
       requestManifest: fixtureSource.requestManifest || null,
-      expectedAccepted: fixtureSource.expectedAccepted ?? null,
-      expectedConflicts: fixtureSource.expectedConflicts ?? null,
-      requestsPerSeat: fixtureSource.requestsPerSeat ?? null,
+      capacityProfile: fixtureSource.capacityProfile || null,
+      userBehavior: fixtureSource.userBehavior || null,
+      thinkTimeMs: fixtureSource.thinkTimeMs ?? null,
+      expectedAccepted: expectedAccepted ?? null,
+      expectedConflicts: expectedConflicts ?? null,
+      requestsPerSeat:
+        config.scenario === 'capacity-vu'
+          ? consistencyFixture?.requestsPerSeat || null
+          : (fixtureSource.requestsPerSeat ?? null),
       counts: {
         users: fixtureSource.userIds.length,
         events: 1,
@@ -552,14 +592,23 @@ async function main() {
       '',
       '## 목표',
       '',
-      `${config.scenario} 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정확히 일치하는지 검증한다.`,
+      config.scenario === 'capacity-vu'
+        ? `${config.capacityProfile} VU 탐색의 실제 RPS, outcome별 지연, 자원 포화와 최종 ID 정합성을 기록한다.`
+        : `${config.scenario} 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정확히 일치하는지 검증한다.`,
       '',
       '## 조건',
       '',
       `- Test environment: ${config.testEnvId}`,
-      `- VU / RPS / duration: ${config.vus} / ${config.rps} / ${config.duration}`,
+      `- VU / target RPS / duration: ${config.vus} / ${config.rps ?? 'not set'} / ${config.duration}`,
       `- Cache profile: ${config.cacheProfile}`,
-      `- Expected accepted / conflict: ${config.expectedAccepted} / ${config.expectedConflicts}`,
+      ...(config.scenario === 'capacity-vu'
+        ? [
+            `- Capacity profile: ${config.capacityProfile}`,
+            `- User behavior / think time: ${config.capacityUserBehavior} / ${config.capacityThinkTime}`,
+            `- Request budget: ${config.capacityRequestBudget}`,
+          ]
+        : []),
+      `- Expected accepted / conflict: ${expectedAccepted} / ${expectedConflicts}`,
       `- Performance ID: ${fixtureSource.performanceId}`,
       '',
       '## 핵심 수치',
@@ -567,6 +616,12 @@ async function main() {
       `- Accepted reservations: ${audit.ids.acceptedReservationIds.length}`,
       `- Persisted reservations: ${audit.database.reservationCount}`,
       `- Request attempts: ${audit.requestAudit?.actualCount ?? 'not applicable'}`,
+      ...(summary.capacityStages
+        ? summary.capacityStages.map(
+            (stage) =>
+              `- Stage ${stage.stage} (${stage.targetVus} VU) actual RPS: ${stage.actualRps.toFixed(2)}`,
+          )
+        : []),
       ...(audit.rebooking
         ? [
             `- First / second reservation status: ${audit.rebooking.firstStatus} / ${audit.rebooking.secondStatus}`,
@@ -580,6 +635,12 @@ async function main() {
       '',
       `- Verdict: ${audit.consistency.pass ? 'PASS' : 'FAIL'}`,
       `- Reasons: ${audit.consistency.reasons.length ? audit.consistency.reasons.join(', ') : 'none'}`,
+      ...(config.scenario === 'capacity-vu'
+        ? [
+            '- Capacity verdict: exploratory / NOT_APPLICABLE',
+            `- SLO threshold observation: ${summary.thresholdPassed ? 'within thresholds' : 'threshold exceeded'}`,
+          ]
+        : []),
       '',
       '## 한계',
       '',
@@ -587,13 +648,17 @@ async function main() {
         ? '- 애플리케이션 지표는 Run 시작·종료 `/metrics` snapshot의 차이로 기록했다.'
         : '- 애플리케이션 지표가 불완전해 server-metrics의 missing 항목을 확인해야 한다.',
       '- DB·Redis는 종료 시점 snapshot이며 세부 시계열은 아직 수집하지 않는다.',
-      '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
+      config.scenario === 'capacity-vu'
+        ? '- 이 탐색 Run은 고정 RPS 회귀 PASS/FAIL이나 지속 가능한 처리량을 입증하지 않는다.'
+        : '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
       '',
       '## 다음 결정',
       '',
-      audit.consistency.pass
-        ? '- ID 감사 기반을 후속 정합성 시나리오에 재사용한다.'
-        : '- 후속 부하 단계를 중단하고 실패 ID와 queue 상태를 조사한다.',
+      config.scenario === 'capacity-vu'
+        ? '- 단계별 실제 RPS, outcome latency, 앱·DB·Redis 지표와 queue drain을 함께 보고 다음 탐색 범위를 결정한다.'
+        : audit.consistency.pass
+          ? '- ID 감사 기반을 후속 정합성 시나리오에 재사용한다.'
+          : '- 후속 부하 단계를 중단하고 실패 ID와 queue 상태를 조사한다.',
       '',
     ].join('\n');
 
