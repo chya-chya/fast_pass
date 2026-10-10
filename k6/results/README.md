@@ -133,6 +133,20 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
 
+## 11단계 Spike·Soak 검증 기록
+
+기본 Spike `300 → 1,000 → 300 RPS`의 `2m / 30s / 3m`과 Soak `확정 RPS의 65% / 60m`는 정적 inspect만 수행했고 원격 부하는 실행하지 않았다. 추가로 clean source의 일회성 로컬 환경에서 축소 Spike와 Soak를 실행해 watchdog, queue drain, persistence metric과 DB ID 감사를 확인했다.
+
+- Spike: `local-spike-20261010063441-33516`, offered/start/enqueue/completed `23/23/23/23`, drop 0, recovery p95 21.83ms, drain 1,068ms
+- Soak: `local-soak-20261010063524-34669`, offered/start/enqueue/completed `25/25/25/25`, drop 0, 6구간 p95 13.04~19.40ms, drain 1,076ms
+- 두 Run 모두 `gitDirty=false`, consistency/observability PASS, watchdog COMPLETED, restart/eviction/관측 누락 0
+- verdict는 각각 `recovery-preflight`, `endurance-preflight`와 `NOT_APPLICABLE`; 축소 실행은 원격 성능 qualification이 아니다.
+- 구현·검증 판정: [`PHASE11_VERIFICATION.md`](../../docs/performance/PHASE11_VERIFICATION.md)
+- 운영 절차: [`LOAD_TEST_RUNBOOK.md`](../../docs/performance/LOAD_TEST_RUNBOOK.md)
+- 상세 결과: [`Spike`](./local-spike-20261010063441-33516/), [`Soak`](./local-soak-20261010063524-34669/)
+
+`local-spike-20261010040009-61892`는 구간 iteration ID 충돌을 발견한 실패 Run이다. `local-spike-20261010040154-63788`, `local-soak-20261010040231-64763`은 최종 커밋 전 기능 연결을 확인한 dirty 진단 Run이며 최종 근거로 사용하지 않는다.
+
 ## 10단계 RPS Capacity 검증 기록
 
 기본 100→300→500→1,000 RPS 탐색과 250/375/500/550 RPS 확정 profile은 정적 inspect만 수행했다. 원격 부하는 실행하지 않았으며 구현 Gate는 `STATIC_VERIFIED`다. 추가로 1→2→3→4 RPS 탐색과 4 RPS 확정을 clean source의 격리 로컬 환경에서 실행해 열린 부하 설정, 네 가지 처리량 경계, queue drain과 DB ID 감사를 확인했다.
