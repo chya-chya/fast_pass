@@ -62,21 +62,58 @@ if ! node k6/tools/preflight.mjs; then
   exit 1
 fi
 node k6/tools/artifact-state.mjs preflight
+node k6/tools/capture-app-metrics.mjs
 
-set +e
-K6_NO_USAGE_REPORT=true k6 run "${scenario_script}"
-k6_status=$?
-set -e
+watchdog_status=0
+if [[ "${SCENARIO}" =~ ^(spike|soak)$ ]]; then
+  set +e
+  K6_NO_USAGE_REPORT=true k6 run "${scenario_script}" &
+  k6_pid=$!
+  node k6/tools/watchdog.mjs "${k6_pid}" &
+  watchdog_pid=$!
+  wait "${k6_pid}"
+  k6_status=$?
+  if kill -0 "${watchdog_pid}" >/dev/null 2>&1; then
+    kill -TERM "${watchdog_pid}" >/dev/null 2>&1
+  fi
+  wait "${watchdog_pid}"
+  watchdog_status=$?
+  set -e
+else
+  set +e
+  K6_NO_USAGE_REPORT=true k6 run "${scenario_script}"
+  k6_status=$?
+  set -e
+fi
 
 set +e
 K6_EXIT_STATUS="${k6_status}" node k6/tools/audit.mjs
 audit_status=$?
 set -e
 
-if [[ ${k6_status} -ne 0 ]]; then
+k6_effective_status=${k6_status}
+if [[ ${k6_status} -eq 99 ]] &&
+  { [[ "${SCENARIO}" == 'capacity-vu' ]] ||
+    [[ "${SCENARIO}" == 'capacity-rps' && "${RPS_TEST_PROFILE:-explore}" =~ ^(explore|confirm-110)$ ]]; }; then
+  k6_effective_status=0
+fi
+
+if [[ ${watchdog_status} -eq 2 ]]; then
+  execution='ABORTED'
+  reason='WATCHDOG_ABORTED'
+  final_status=2
+elif [[ ${watchdog_status} -ne 0 ]]; then
   execution='FAILED'
-  reason='K6_FAILED'
-  final_status=${k6_status}
+  reason='WATCHDOG_FAILED'
+  final_status=${watchdog_status}
+elif [[ ${k6_effective_status} -ne 0 ]]; then
+  execution='FAILED'
+  if [[ ${k6_status} -eq 99 ]]; then
+    reason='K6_THRESHOLD_ABORTED'
+  else
+    reason='K6_FAILED'
+  fi
+  final_status=${k6_effective_status}
 elif [[ ${audit_status} -ne 0 ]]; then
   execution='FAILED'
   reason='AUDIT_FAILED'

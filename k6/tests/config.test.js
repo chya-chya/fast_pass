@@ -23,6 +23,9 @@ function validEnvironment(overrides = {}) {
     EXPECTED_MIGRATION_ID: '20260105075934',
     EXPECTED_DB_TLS_MODE: 'disable',
     EXPECTED_REDIS_TLS_MODE: 'disable',
+    EXPECTED_TRACING_ENABLED: 'false',
+    EXPECTED_OTEL_TRACE_SAMPLE_RATIO: '0.1',
+    EXPECTED_OTEL_MIN_SPAN_DURATION_MS: '0',
     TEST_PREFLIGHT_TOKEN: 't'.repeat(32),
     ...overrides,
   };
@@ -112,6 +115,9 @@ test('public configuration omits tokens and connection strings', () => {
   assert.doesNotMatch(serialized, /postgres(?:ql)?:\/\//i);
   assert.doesNotMatch(serialized, /redis(?:s)?:\/\//i);
   assert.equal(publicConfig.remoteExecutionEnabled, false);
+  assert.equal(publicConfig.expectedTracingEnabled, false);
+  assert.equal(publicConfig.expectedTraceSampleRatio, 0.1);
+  assert.equal(publicConfig.expectedMinSpanDurationMs, 0);
 });
 
 test('uses the exact 1000-by-50 inventory defaults', () => {
@@ -164,4 +170,189 @@ test('configures rebooking as one iteration containing two accepted requests', (
   assert.equal(config.totalRequests, 2);
   assert.equal(config.expectedAccepted, 2);
   assert.equal(config.expectedConflicts, 0);
+});
+
+test('uses four ramping VU stages without a target RPS', () => {
+  const config = loadConfig({ SCENARIO: 'capacity-vu' });
+  assert.equal(config.executor, 'ramping-vus');
+  assert.deepEqual(config.capacityTargets, [100, 500, 1000, 2000]);
+  assert.deepEqual(config.capacityStageHolds, ['3m', '3m', '3m', '3m']);
+  assert.equal(config.capacityThinkTime, '60s');
+  assert.equal(config.rps, null);
+  assert.equal(config.capacityRequestBudget, 20000);
+});
+
+test('accepts only a bounded reduced local capacity profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'capacity-vu',
+      RUN_ID: 'capacity-local',
+      RPS: undefined,
+      VU: undefined,
+      DURATION: undefined,
+      CAPACITY_PROFILE: 'unique-seat',
+      CAPACITY_VU_STAGES: '1,2,3,4',
+      CAPACITY_RAMP_DURATION: '1s',
+      CAPACITY_STAGE_HOLD_1: '2s',
+      CAPACITY_STAGE_HOLD_2: '2s',
+      CAPACITY_STAGE_HOLD_3: '2s',
+      CAPACITY_STAGE_HOLD_4: '2s',
+      CAPACITY_THINK_TIME: '1s',
+      CAPACITY_REQUEST_BUDGET: '64',
+      USER_COUNT: '4',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.vus, 4);
+  assert.equal(config.capacityRequiredRequestBudget, 38);
+  assert.equal(config.seatCount, 64);
+});
+
+test('rejects RPS targets and undersized capacity fixtures', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'capacity-vu',
+        RPS: '100',
+        CAPACITY_REQUEST_BUDGET: '10',
+      }),
+    /RPS must not be set|must be at least/,
+  );
+});
+
+test('uses the 100 to 1000 RPS exploration defaults', () => {
+  const config = loadConfig({ SCENARIO: 'capacity-rps' });
+  assert.equal(config.executor, 'ramping-arrival-rate');
+  assert.equal(config.rpsTimeUnit, '1s');
+  assert.deepEqual(config.rpsTargets, [100, 300, 500, 1000]);
+  assert.equal(config.rpsPreAllocatedVus, 500);
+  assert.equal(config.rpsMaxVus, 1000);
+  assert.equal(config.rpsRequiredRequestBudget, 24000);
+  assert.equal(config.rpsRequestBudget, 25000);
+});
+
+test('derives 50, 75, 100, and 110 percent confirmation rates', () => {
+  const rates = ['confirm-50', 'confirm-75', 'confirm-100', 'confirm-110'].map(
+    (profile) =>
+      loadConfig({
+        SCENARIO: 'capacity-rps',
+        RPS_TEST_PROFILE: profile,
+        RPS_RATE: '500',
+      }).rpsRate,
+  );
+  assert.deepEqual(rates, [250, 375, 500, 550]);
+});
+
+test('accepts a bounded reduced local RPS exploration profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'capacity-rps',
+      RUN_ID: 'rps-local',
+      VU: undefined,
+      RPS: undefined,
+      DURATION: undefined,
+      RPS_TEST_PROFILE: 'explore',
+      CAPACITY_PROFILE: 'unique-seat',
+      RPS_STAGES: '1,2,3,4',
+      RPS_RAMP_DURATION: '1s',
+      RPS_STAGE_HOLD_1: '1s',
+      RPS_STAGE_HOLD_2: '1s',
+      RPS_STAGE_HOLD_3: '1s',
+      RPS_STAGE_HOLD_4: '1s',
+      RPS_PRE_ALLOCATED_VUS: '4',
+      RPS_MAX_VUS: '10',
+      RPS_REQUEST_BUDGET: '64',
+      USER_COUNT: '10',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.rpsMaxRate, 4);
+  assert.equal(config.rpsRequiredRequestBudget, 24);
+  assert.equal(config.durationMs, 9000);
+});
+
+test('rejects non-second time units and invalid RPS VU allocation', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'capacity-rps',
+        RPS_TIME_UNIT: '1m',
+        RPS_PRE_ALLOCATED_VUS: '1001',
+        RPS_MAX_VUS: '1000',
+      }),
+    /RPS_TIME_UNIT must equal 1s|must be at most/,
+  );
+});
+
+test('builds the default Spike fixture and authentication budget', () => {
+  const config = loadConfig({ SCENARIO: 'spike' });
+  assert.equal(config.executor, 'constant-arrival-rate');
+  assert.equal(config.spikeBaselineRps, 300);
+  assert.equal(config.spikePeakRps, 1000);
+  assert.equal(config.loadDurationMs, 330000);
+  assert.equal(config.loadScheduledRequests, 120000);
+  assert.equal(config.loadRequiredRequestBudget, 132000);
+  assert.equal(config.fixtureCapacityPlan.seats, 132000);
+  assert.equal(config.loadAccessTokenTtlSeconds, 7200);
+});
+
+test('derives the default Soak rate from confirmed capacity', () => {
+  const config = loadConfig({ SCENARIO: 'soak' });
+  assert.equal(config.soakRatePercent, 65);
+  assert.equal(config.soakRps, 325);
+  assert.equal(config.soakDurationMs, 3600000);
+  assert.equal(config.loadScheduledRequests, 1170000);
+  assert.equal(config.loadRequiredRequestBudget, 1287000);
+});
+
+test('accepts only an explicitly reduced local Spike profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'spike',
+      RUN_ID: 'spike-local',
+      RPS: undefined,
+      DURATION: undefined,
+      LOAD_TEST_REDUCED: 'true',
+      SPIKE_BASELINE_RPS: '2',
+      SPIKE_PEAK_RPS: '4',
+      SPIKE_BASELINE_DURATION: '2s',
+      SPIKE_PEAK_DURATION: '2s',
+      SPIKE_RECOVERY_DURATION: '3s',
+      LOAD_PRE_ALLOCATED_VUS: '4',
+      LOAD_MAX_VUS: '10',
+      LOAD_REQUEST_BUDGET: '64',
+      FIXTURE_SEED_MODE: 'api-array',
+      FIXTURE_MAX_USERS: '10',
+      FIXTURE_MAX_SEATS: '64',
+      FIXTURE_MAX_DATABASE_ROWS: '200',
+      FIXTURE_MAX_DATABASE_BYTES: '1000000',
+      FIXTURE_MAX_REDIS_BYTES: '1000000',
+      FIXTURE_MAX_STORAGE_BYTES: '1000000',
+      LOAD_SETUP_ALLOWANCE: '5m',
+      LOAD_DRAIN_ALLOWANCE: '1m',
+      LOAD_AUDIT_ALLOWANCE: '1m',
+      LOAD_TOKEN_SAFETY: '1m',
+      LOAD_ACCESS_TOKEN_TTL: '15m',
+      USER_COUNT: '10',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.loadTestReduced, true);
+  assert.equal(config.loadDurationMs, 7000);
+  assert.equal(config.loadRequiredRequestBudget, 21);
+});
+
+test('rejects shortened Soak without reduced mode and insufficient TTL', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'soak',
+        SOAK_DURATION: '5m',
+        LOAD_ACCESS_TOKEN_TTL: '60m',
+      }),
+    /SOAK_DURATION must be at least 60m|LOAD_ACCESS_TOKEN_TTL must cover/,
+  );
 });

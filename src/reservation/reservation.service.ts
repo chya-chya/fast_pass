@@ -5,6 +5,7 @@ import {
   ConflictException,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +30,10 @@ import {
   SeatAlreadyReservedException,
   SeatNotFoundException,
 } from './reservation.errors';
+import {
+  ReservationLuaResult,
+  ReservationMetricsService,
+} from './reservation-metrics.service';
 
 interface ReservationQueueData extends TrackedReservationData {
   version?: number;
@@ -81,6 +86,8 @@ export class ReservationService {
     @InjectMetric('reservation_processed_total')
     public processedCounter: Counter<string>,
     private readonly testRunTracker: TestRunTrackerService,
+    @Optional()
+    private readonly reservationMetrics?: ReservationMetricsService,
   ) {
     this.redlock = new Redlock([this.redisClient], {
       driftFactor: 0.01,
@@ -131,12 +138,18 @@ export class ReservationService {
     testRunId?: string,
     testRequestId?: string,
   ): Promise<AcceptedReservation> {
-    const tracking = this.testRunTracker.normalizeTracking(
-      testRunId,
-      testRequestId,
-    );
     this.requestCounter.inc();
-    return new Promise<AcceptedReservation>((resolve, reject) => {
+    let tracking: { runId?: string; requestId?: string };
+    try {
+      tracking = this.testRunTracker.normalizeTracking(
+        testRunId,
+        testRequestId,
+      );
+    } catch (error) {
+      this.reservationMetrics?.recordRequestOutcome('unexpected_failure');
+      throw error;
+    }
+    const pending = new Promise<AcceptedReservation>((resolve, reject) => {
       this.reservationQueue.push({
         userId,
         dto: createReservationDto,
@@ -149,6 +162,20 @@ export class ReservationService {
         void this.flushQueue();
       }
     });
+    return pending.then(
+      (reservation) => {
+        this.reservationMetrics?.recordRequestOutcome('accepted');
+        return reservation;
+      },
+      (error: unknown) => {
+        this.reservationMetrics?.recordRequestOutcome(
+          error instanceof SeatAlreadyReservedException
+            ? 'expected_conflict'
+            : 'unexpected_failure',
+        );
+        throw error;
+      },
+    );
   }
 
   // 배치 처리
@@ -204,6 +231,7 @@ export class ReservationService {
     try {
       const results = await pipeline.exec();
       if (!results || results.length !== batch.length) {
+        this.reservationMetrics?.recordLuaResult('ERROR', batch.length);
         batch.forEach((request) =>
           request.reject(new ReservationStoreUnavailableException()),
         );
@@ -217,10 +245,18 @@ export class ReservationService {
         const req = batch[index];
 
         if (err) {
+          this.reservationMetrics?.recordLuaResult('ERROR');
           console.error('Reservation Redis pipeline operation failed');
           req.reject(new ReservationStoreUnavailableException());
           return;
         }
+
+        const luaResult = String(response).toUpperCase();
+        this.reservationMetrics?.recordLuaResult(
+          (['OK', 'FAIL', 'MISS', 'WAIT'].includes(luaResult)
+            ? luaResult
+            : 'UNKNOWN') as ReservationLuaResult,
+        );
 
         if (response === 'OK') {
           // Lock acquired locally, prepare to push to queue
@@ -255,12 +291,14 @@ export class ReservationService {
             successfulReqs.map((req) => (req as any).reservationData),
           );
         } catch {
+          this.queueCounter.labels('fail').inc(successfulReqs.length);
           successfulReqs.forEach((request) =>
             request.reject(new ReservationQueueUnavailableException()),
           );
           return;
         }
         if (!pushResults || pushResults.length !== successfulReqs.length) {
+          this.queueCounter.labels('fail').inc(successfulReqs.length);
           successfulReqs.forEach((request) =>
             request.reject(new ReservationQueueUnavailableException()),
           );
@@ -276,6 +314,7 @@ export class ReservationService {
             // Ideally we should release the lock here, but TTL handles it eventually.
             // Log error explicitly.
             console.error('Reservation queue enqueue failed');
+            this.queueCounter.labels('fail').inc();
             req.reject(new ReservationQueueUnavailableException());
           } else {
             this.queueCounter.labels('success').inc();
@@ -288,6 +327,7 @@ export class ReservationService {
         });
       }
     } catch {
+      this.reservationMetrics?.recordLuaResult('ERROR', batch.length);
       console.error('Reservation Redis batch failed');
       batch.forEach((request) =>
         request.reject(new ReservationStoreUnavailableException()),
@@ -371,6 +411,7 @@ export class ReservationService {
       try {
         await this.testRunTracker.enqueue(reservationData);
       } catch {
+        this.queueCounter.labels('fail').inc();
         throw new ReservationQueueUnavailableException();
       }
       this.queueCounter.labels('success').inc();
@@ -520,6 +561,7 @@ export class ReservationService {
         await stopClaimHeartbeat();
       }
       transactionCommitted = true;
+      this.reservationMetrics?.observePersistenceLatency(message.streamId);
 
       await this.testRunTracker.markSuccess(message, data);
       console.log(`Processed reservation ${id} for seat ${seatId}`);

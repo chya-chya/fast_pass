@@ -1,5 +1,8 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
+
+external_labels:
+  monitoring_profile: production
 
 scrape_configs:
   - job_name: 'ec2-nestjs-app'
@@ -27,7 +30,7 @@ scrape_configs:
       - source_labels: [__meta_ec2_tag_Monitoring]
         regex: 'true'
         action: keep
-      # Change target to <private_ip>:9615
+      # Change target to the PM2 exporter port.
       - source_labels: [__meta_ec2_private_ip]
         replacement: '${1}:9209'
         target_label: __address__

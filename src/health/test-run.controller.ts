@@ -34,7 +34,11 @@ type RedisTestRunClient = {
 type FixtureScenario =
   | 'consistency-one-seat'
   | 'consistency-inventory'
-  | 'rebooking';
+  | 'rebooking'
+  | 'capacity-vu'
+  | 'capacity-rps'
+  | 'spike'
+  | 'soak';
 
 type FixtureInput = {
   userIds: string[];
@@ -43,18 +47,29 @@ type FixtureInput = {
   seatIds: string[];
   scenario?: FixtureScenario;
   cacheProfile?: 'warm' | 'cold';
-  requestManifest?: {
-    schemaVersion: 1;
-    totalRequests: number;
-    assignment: 'global_iteration_modulo' | 'rebooking_sequence';
-  };
+  capacityProfile?: 'unique-seat' | 'hot-seat';
+  userBehavior?: 'reserve-then-think' | 'think-then-reserve';
+  thinkTimeMs?: number;
+  requestManifest?:
+    | {
+        schemaVersion: 1;
+        totalRequests: number;
+        assignment: 'global_iteration_modulo' | 'rebooking_sequence';
+      }
+    | {
+        schemaVersion: 2;
+        requestBudget: number;
+        assignment:
+          | 'global_iteration_unique_seat'
+          | 'global_iteration_hot_seat';
+      };
   expectedAccepted?: number;
   expectedConflicts?: number;
   requestsPerSeat?: number;
 };
 
 const ARTIFACT_TTL_SECONDS = 24 * 60 * 60;
-const MAX_FIXTURE_IDS = 10_000;
+const MAX_FIXTURE_IDS = 25_000;
 const FIXTURE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 function validateId(value: unknown): value is string {
@@ -92,9 +107,16 @@ function parseFixture(body: unknown): FixtureInput {
   };
   if (candidate.scenario === undefined) return fixture;
   if (
-    !['consistency-one-seat', 'consistency-inventory', 'rebooking'].includes(
-      String(candidate.scenario),
-    ) ||
+    typeof candidate.scenario !== 'string' ||
+    ![
+      'consistency-one-seat',
+      'consistency-inventory',
+      'rebooking',
+      'capacity-vu',
+      'capacity-rps',
+      'spike',
+      'soak',
+    ].includes(candidate.scenario) ||
     !['warm', 'cold'].includes(String(candidate.cacheProfile)) ||
     !candidate.requestManifest ||
     typeof candidate.requestManifest !== 'object' ||
@@ -103,6 +125,57 @@ function parseFixture(body: unknown): FixtureInput {
     throw new ConflictException('fixture manifest rejected');
   }
   const requestManifest = candidate.requestManifest as Record<string, unknown>;
+  const scenario = candidate.scenario as FixtureScenario;
+  if (['capacity-vu', 'capacity-rps', 'spike', 'soak'].includes(scenario)) {
+    const capacityProfile = candidate.capacityProfile;
+    const assignment = requestManifest.assignment;
+    const requestBudget = requestManifest.requestBudget;
+    if (
+      typeof capacityProfile !== 'string' ||
+      !['unique-seat', 'hot-seat'].includes(capacityProfile) ||
+      (['spike', 'soak'].includes(scenario) &&
+        capacityProfile !== 'unique-seat') ||
+      (scenario === 'capacity-vu' &&
+        (typeof candidate.userBehavior !== 'string' ||
+          !['reserve-then-think', 'think-then-reserve'].includes(
+            candidate.userBehavior,
+          ) ||
+          typeof candidate.thinkTimeMs !== 'number' ||
+          !Number.isInteger(candidate.thinkTimeMs) ||
+          Number(candidate.thinkTimeMs) < 100 ||
+          Number(candidate.thinkTimeMs) > 300_000)) ||
+      requestManifest.schemaVersion !== 2 ||
+      typeof requestBudget !== 'number' ||
+      !Number.isInteger(requestBudget) ||
+      Number(requestBudget) < 1 ||
+      Number(requestBudget) > MAX_FIXTURE_IDS ||
+      (capacityProfile === 'unique-seat' &&
+        (assignment !== 'global_iteration_unique_seat' ||
+          candidate.seatIds.length !== requestBudget)) ||
+      (capacityProfile === 'hot-seat' &&
+        (assignment !== 'global_iteration_hot_seat' ||
+          candidate.seatIds.length !== 1))
+    ) {
+      throw new ConflictException('fixture manifest rejected');
+    }
+    fixture.scenario = scenario;
+    fixture.cacheProfile = candidate.cacheProfile as 'warm' | 'cold';
+    fixture.capacityProfile = capacityProfile as 'unique-seat' | 'hot-seat';
+    if (scenario === 'capacity-vu') {
+      fixture.userBehavior = candidate.userBehavior as
+        | 'reserve-then-think'
+        | 'think-then-reserve';
+      fixture.thinkTimeMs = Number(candidate.thinkTimeMs);
+    }
+    fixture.requestManifest = {
+      schemaVersion: 2,
+      requestBudget: Number(requestBudget),
+      assignment: assignment as
+        | 'global_iteration_unique_seat'
+        | 'global_iteration_hot_seat',
+    };
+    return fixture;
+  }
   const totalRequests = requestManifest.totalRequests;
   if (
     requestManifest.schemaVersion !== 1 ||
@@ -115,7 +188,6 @@ function parseFixture(body: unknown): FixtureInput {
   ) {
     throw new ConflictException('fixture manifest rejected');
   }
-  const scenario = candidate.scenario as FixtureScenario;
   if (
     (scenario === 'rebooking' &&
       (requestManifest.assignment !== 'rebooking_sequence' ||

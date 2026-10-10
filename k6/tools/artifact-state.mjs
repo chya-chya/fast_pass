@@ -20,6 +20,9 @@ const FAILURE_CODES = new Set([
   'ARTIFACT_VALIDATION_FAILED',
   'AUDIT_FAILED',
   'RUNNER_FAILED',
+  'WATCHDOG_ABORTED',
+  'WATCHDOG_FAILED',
+  'K6_THRESHOLD_ABORTED',
 ]);
 const SUMMARY_METRICS = new Set([
   'checks',
@@ -31,9 +34,59 @@ const SUMMARY_METRICS = new Set([
   'expected_conflict',
   'unexpected_error',
   'timeout',
+  'unexpected_error_rate',
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
+  'reservation_requests',
+  'accepted_duration_ms',
+  'expected_conflict_duration_ms',
+  'unexpected_error_duration_ms',
+  'timeout_duration_ms',
+  'capacity_stage_1_requests',
+  'capacity_stage_2_requests',
+  'capacity_stage_3_requests',
+  'capacity_stage_4_requests',
+  'dropped_iterations',
+  'reservation_requests_started',
+  'reservation_responses_completed',
+  'rps_stage_1_requests_started',
+  'rps_stage_2_requests_started',
+  'rps_stage_3_requests_started',
+  'rps_stage_4_requests_started',
+  'rps_stage_1_responses_completed',
+  'rps_stage_2_responses_completed',
+  'rps_stage_3_responses_completed',
+  'rps_stage_4_responses_completed',
+  'load_requests_started',
+  'load_responses_completed',
+  'spike_baseline_requests_started',
+  'spike_baseline_responses_completed',
+  'spike_baseline_accepted_duration_ms',
+  'spike_baseline_unexpected_error',
+  'spike_baseline_timeout',
+  'spike_peak_requests_started',
+  'spike_peak_responses_completed',
+  'spike_peak_accepted_duration_ms',
+  'spike_peak_unexpected_error',
+  'spike_peak_timeout',
+  'spike_recovery_requests_started',
+  'spike_recovery_responses_completed',
+  'spike_recovery_accepted_duration_ms',
+  'spike_recovery_unexpected_error',
+  'spike_recovery_timeout',
+  'soak_requests_started',
+  'soak_responses_completed',
+  'soak_accepted_duration_ms',
+  'soak_unexpected_error',
+  'soak_timeout',
+  ...Array.from({ length: 6 }, (_, index) => [
+    `soak_window_${index + 1}_requests_started`,
+    `soak_window_${index + 1}_responses_completed`,
+    `soak_window_${index + 1}_accepted_duration_ms`,
+    `soak_window_${index + 1}_unexpected_error`,
+    `soak_window_${index + 1}_timeout`,
+  ]).flat(),
 ]);
 const SENSITIVE_KEY =
   /(authorization|password|secret|access.?token|refresh.?token|database.?url|redis.?url|preflight.?token)/i;
@@ -107,6 +160,11 @@ async function getPaths(config) {
     audit: path.join(resultDirectory, 'consistency-audit.json'),
     metricsTemp: path.join(resultDirectory, '.server-metrics.json.tmp'),
     metrics: path.join(resultDirectory, 'server-metrics.json'),
+    metricsBaselineTemp: path.join(
+      resultDirectory,
+      '.app-metrics-baseline.json.tmp',
+    ),
+    watchdogTemp: path.join(resultDirectory, '.watchdog.json.tmp'),
     reportTemp: path.join(resultDirectory, '.report.md.tmp'),
     report: path.join(resultDirectory, 'report.md'),
     checksums: path.join(resultDirectory, 'checksums.sha256'),
@@ -204,13 +262,22 @@ function validateAudit(audit, config) {
   ) {
     throw new Error('rebooking audit schema is invalid');
   }
+  if (
+    ['spike', 'soak'].includes(config.scenario) &&
+    (!audit.experimentVerdict ||
+      typeof audit.experimentVerdict.kind !== 'string' ||
+      typeof audit.experimentVerdict.status !== 'string' ||
+      !Array.isArray(audit.experimentVerdict.reasons))
+  ) {
+    throw new Error('long-run experiment verdict is invalid');
+  }
   assertNoSecrets(audit, 'consistency audit');
 }
 
 function validateServerMetrics(metrics, config) {
   if (
     !metrics ||
-    metrics.schemaVersion !== 1 ||
+    ![1, 2].includes(metrics.schemaVersion) ||
     metrics.runId !== config.runId ||
     !metrics.window ||
     !metrics.app ||
@@ -226,6 +293,24 @@ function validateServerMetrics(metrics, config) {
     if (component.status === 'unavailable' && !component.reason) {
       throw new Error('unavailable server metrics require a reason');
     }
+  }
+  if (
+    metrics.schemaVersion === 2 &&
+    (metrics.window.timezone !== 'UTC' ||
+      typeof metrics.app.valid !== 'boolean' ||
+      !Array.isArray(metrics.app.missingMetrics) ||
+      !metrics.pm2)
+  ) {
+    throw new Error('server metrics observability schema is invalid');
+  }
+  if (
+    ['spike', 'soak'].includes(config.scenario) &&
+    (!metrics.load ||
+      !metrics.watchdog ||
+      metrics.watchdog.runId !== config.runId ||
+      !['COMPLETED', 'ABORTED'].includes(metrics.watchdog.status))
+  ) {
+    throw new Error('long-run watchdog metrics are invalid');
   }
   assertNoSecrets(metrics, 'server metrics');
 }
@@ -307,6 +392,8 @@ export async function markIncomplete(config, execution, statusReason) {
     paths.fixtureTemp,
     paths.auditTemp,
     paths.metricsTemp,
+    paths.metricsBaselineTemp,
+    paths.watchdogTemp,
     paths.reportTemp,
   ]) {
     try {
@@ -370,6 +457,7 @@ export async function finalizeArtifacts(config, execution, statusReason) {
       pass: audit.consistency.pass,
       reasons: audit.consistency.reasons,
     },
+    verdict: audit.experimentVerdict || summary.verdict,
     artifacts: [
       'metadata.json',
       'fixture-manifest.json',
@@ -403,6 +491,12 @@ export async function finalizeArtifacts(config, execution, statusReason) {
     unlink(paths.fixtureTemp),
     unlink(paths.auditTemp),
     unlink(paths.metricsTemp),
+    unlink(paths.metricsBaselineTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
+    unlink(paths.watchdogTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
     unlink(paths.reportTemp),
   ]);
 }

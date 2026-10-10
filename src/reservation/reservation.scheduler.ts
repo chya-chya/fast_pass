@@ -1,13 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression, Interval } from '@nestjs/schedule';
 import { ReservationService } from './reservation.service';
+import { ReservationMetricsService } from './reservation-metrics.service';
 
 @Injectable()
 export class ReservationScheduler {
   private readonly logger = new Logger(ReservationScheduler.name);
   private isProcessing = false;
 
-  constructor(private readonly reservationService: ReservationService) {}
+  constructor(
+    private readonly reservationService: ReservationService,
+    @Optional()
+    private readonly reservationMetrics?: ReservationMetricsService,
+  ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleExpiredReservations() {
@@ -32,6 +37,8 @@ export class ReservationScheduler {
       return;
     }
     this.isProcessing = true;
+    const startedAt = process.hrtime.bigint();
+    let processedCount = 0;
 
     try {
       // 한 번에 최대 50개씩 처리
@@ -41,11 +48,18 @@ export class ReservationScheduler {
         if (!processed) {
           break;
         }
+        processedCount += 1;
       }
     } catch (error) {
       this.logger.error('Failed to handle reservation queue', error);
     } finally {
       this.isProcessing = false;
+      const durationSeconds =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+      this.reservationMetrics?.observeSchedulerBatch(
+        processedCount,
+        durationSeconds,
+      );
     }
   }
 

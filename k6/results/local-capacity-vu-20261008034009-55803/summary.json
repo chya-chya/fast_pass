@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-vu-20261008034009-55803",
+  "scenario": "capacity-vu",
+  "dataset": {
+    "cacheProfile": "warm",
+    "vus": 4,
+    "iterationsPerVu": null,
+    "totalRequests": null,
+    "seatCount": 1,
+    "expectedAccepted": null,
+    "expectedConflicts": null,
+    "requestsPerSeat": null,
+    "capacityProfile": "hot-seat",
+    "userBehavior": "reserve-then-think",
+    "thinkTime": "1s",
+    "requestBudget": 64
+  },
+  "capacityStages": [
+    {
+      "stage": 1,
+      "targetVus": 1,
+      "rampDuration": "1s",
+      "holdDuration": "2s",
+      "measurementWindowMs": 3000,
+      "requestCount": 2,
+      "actualRps": 0.6666666666666666
+    },
+    {
+      "stage": 2,
+      "targetVus": 2,
+      "rampDuration": "1s",
+      "holdDuration": "2s",
+      "measurementWindowMs": 3000,
+      "requestCount": 5,
+      "actualRps": 1.6666666666666667
+    },
+    {
+      "stage": 3,
+      "targetVus": 3,
+      "rampDuration": "1s",
+      "holdDuration": "2s",
+      "measurementWindowMs": 3000,
+      "requestCount": 8,
+      "actualRps": 2.6666666666666665
+    },
+    {
+      "stage": 4,
+      "targetVus": 4,
+      "rampDuration": "1s",
+      "holdDuration": "2s",
+      "measurementWindowMs": 4000,
+      "requestCount": 15,
+      "actualRps": 3.75
+    }
+  ],
+  "generatedAt": "2026-10-08T03:40:30.852Z",
+  "thresholdPassed": true,
+  "thresholdFailures": [],
+  "verdict": {
+    "kind": "exploratory",
+    "status": "NOT_APPLICABLE",
+    "sloThresholdsPassed": true
+  },
+  "metrics": {
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "passes": 60,
+        "fails": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "rate==1": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 2.573,
+        "med": 9.084,
+        "max": 120.61,
+        "p(90)": 71.69370000000002,
+        "p(95)": 114.3799,
+        "p(99)": 119.19057,
+        "avg": 23.22836363636363
+      },
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.6590909090909091,
+        "passes": 29,
+        "fails": 15
+      },
+      "thresholds": {}
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 26,
+        "rate": 1.8873816775019312
+      },
+      "thresholds": {}
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 4,
+        "min": 4,
+        "max": 4
+      },
+      "thresholds": {}
+    },
+    "accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.07259160298084351
+      },
+      "thresholds": {}
+    },
+    "expected_conflict": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 29,
+        "rate": 2.1051564864444616
+      },
+      "thresholds": {}
+    },
+    "unexpected_error": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "timeout": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "request_start_offset_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 1002,
+        "med": 8547.5,
+        "max": 12119,
+        "p(90)": 12027.7,
+        "p(95)": 12067.95,
+        "p(99)": 12107.98,
+        "avg": 8043.733333333334
+      },
+      "thresholds": {}
+    },
+    "reservation_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 2.177748089425305,
+        "count": 30
+      },
+      "thresholds": {}
+    },
+    "accepted_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 12.567,
+        "min": 12.567,
+        "med": 12.567,
+        "max": 12.567,
+        "p(90)": 12.567,
+        "p(95)": 12.567,
+        "p(99)": 12.567
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "expected_conflict_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 7.813,
+        "max": 14.735,
+        "p(90)": 13.4888,
+        "p(95)": 13.9764,
+        "p(99)": 14.551039999999999,
+        "avg": 8.65555172413793,
+        "min": 2.573
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "unexpected_error_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        },
+        "p(99)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "capacity_stage_1_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.14518320596168702,
+        "count": 2
+      },
+      "thresholds": {}
+    },
+    "capacity_stage_2_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.36295801490421753,
+        "count": 5
+      },
+      "thresholds": {}
+    },
+    "capacity_stage_3_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 8,
+        "rate": 0.5807328238467481
+      },
+      "thresholds": {}
+    },
+    "capacity_stage_4_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 15,
+        "rate": 1.0888740447126526
+      },
+      "thresholds": {}
+    }
+  }
+}
