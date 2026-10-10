@@ -11,9 +11,16 @@ import {
   drainSignature,
   isDrainCandidate,
 } from '../lib/audit.js';
-import { buildCapacityExpectedRequestManifest } from '../lib/capacity.js';
+import {
+  buildCapacityExpectedRequestManifest,
+  capacityAssignmentFor,
+} from '../lib/capacity.js';
 import { isLoopbackHostname, loadConfig } from '../lib/config.js';
-import { buildExpectedRequestManifest } from '../lib/consistency.js';
+import {
+  buildExpectedRequestManifest,
+  requestIdFor,
+} from '../lib/consistency.js';
+import { longRunIterationIndices } from '../lib/endurance.js';
 import {
   APP_METRIC_NAMES,
   parsePrometheusSnapshot,
@@ -44,6 +51,39 @@ function numericHash(hash) {
 
 function distribution(rows) {
   return Object.fromEntries(rows.map((row) => [row.status, Number(row.count)]));
+}
+
+function buildLongRunExpectedRequestManifest(
+  config,
+  summary,
+  userIds,
+  seatIds,
+  requestBudget,
+) {
+  const phaseCounts = Object.fromEntries(
+    (summary.longRunPhases || []).map((phase) => [
+      phase.phase,
+      phase.startedRequests,
+    ]),
+  );
+  const requests = {};
+  const requestsPerSeat = {};
+  for (const index of longRunIterationIndices(config, phaseCounts)) {
+    const assignment = capacityAssignmentFor(
+      index,
+      userIds,
+      seatIds,
+      'unique-seat',
+      requestBudget,
+    );
+    requests[requestIdFor(config.runId, index)] = {
+      userId: assignment.userId,
+      seatId: assignment.seatId,
+    };
+    requestsPerSeat[assignment.seatId] =
+      (requestsPerSeat[assignment.seatId] || 0) + 1;
+  }
+  return { requests, requestsPerSeat };
 }
 
 function parseRedisInfo(raw) {
@@ -398,21 +438,33 @@ async function main() {
     const capacityScenario = ['capacity-vu', 'capacity-rps'].includes(
       config.scenario,
     );
+    const longRunScenario = ['spike', 'soak'].includes(config.scenario);
+    const manifestScenario = capacityScenario || longRunScenario;
     const capacityRequestCount =
       config.scenario === 'capacity-rps'
         ? metricCount('reservation_requests_started')
-        : metricCount('reservation_requests');
-    const capacityFixture = capacityScenario
-      ? buildCapacityExpectedRequestManifest(
-          config.runId,
-          capacityRequestCount,
-          fixtureSource.userIds,
-          fixtureSource.seatIds,
-          fixtureSource.capacityProfile,
-          fixtureSource.requestManifest?.requestBudget,
-        )
+        : longRunScenario
+          ? metricCount('load_requests_started')
+          : metricCount('reservation_requests');
+    const capacityFixture = manifestScenario
+      ? longRunScenario
+        ? buildLongRunExpectedRequestManifest(
+            config,
+            summary,
+            fixtureSource.userIds,
+            fixtureSource.seatIds,
+            fixtureSource.requestManifest?.requestBudget,
+          )
+        : buildCapacityExpectedRequestManifest(
+            config.runId,
+            capacityRequestCount,
+            fixtureSource.userIds,
+            fixtureSource.seatIds,
+            fixtureSource.capacityProfile,
+            fixtureSource.requestManifest?.requestBudget,
+          )
       : null;
-    const consistencyFixture = capacityScenario
+    const consistencyFixture = manifestScenario
       ? capacityFixture
       : fixtureSource.requestManifest
         ? buildExpectedRequestManifest(
@@ -423,12 +475,12 @@ async function main() {
             fixtureSource.requestManifest.assignment,
           )
         : null;
-    const expectedAccepted = capacityScenario
+    const expectedAccepted = manifestScenario
       ? fixtureSource.capacityProfile === 'unique-seat'
         ? capacityRequestCount
         : Math.min(capacityRequestCount, 1)
       : fixtureSource.expectedAccepted;
-    const expectedConflicts = capacityScenario
+    const expectedConflicts = manifestScenario
       ? fixtureSource.capacityProfile === 'hot-seat'
         ? Math.max(capacityRequestCount - 1, 0)
         : 0
@@ -442,12 +494,12 @@ async function main() {
       summaryConflicts: metricCount('expected_conflict'),
       summaryUnexpectedErrors: metricCount('unexpected_error'),
       summaryTimeouts: metricCount('timeout'),
-      summaryIterations: capacityScenario
+      summaryIterations: manifestScenario
         ? capacityRequestCount
         : metricCount('iterations'),
       summaryFirstAccepted: metricCount('rebooking_first_accepted'),
       summarySecondAccepted: metricCount('rebooking_second_accepted'),
-      expectedIterations: capacityScenario
+      expectedIterations: manifestScenario
         ? capacityRequestCount
         : config.totalIterations,
       scenario: config.scenario,
@@ -510,7 +562,7 @@ async function main() {
       thinkTimeMs: fixtureSource.thinkTimeMs ?? null,
       expectedAccepted: expectedAccepted ?? null,
       expectedConflicts: expectedConflicts ?? null,
-      requestsPerSeat: capacityScenario
+      requestsPerSeat: manifestScenario
         ? consistencyFixture?.requestsPerSeat || null
         : (fixtureSource.requestsPerSeat ?? null),
       counts: {
@@ -529,10 +581,145 @@ async function main() {
               xact_rollback::bigint::text AS "transactionsRolledBack"
        FROM pg_stat_database WHERE datname = current_database()`,
     );
+    let watchdog = null;
+    if (longRunScenario) {
+      watchdog = JSON.parse(
+        await readFile(
+          path.join(resultDirectory, '.watchdog.json.tmp'),
+          'utf8',
+        ),
+      );
+      if (
+        watchdog.schemaVersion !== 1 ||
+        watchdog.runId !== config.runId ||
+        watchdog.scenario !== config.scenario ||
+        watchdog.status === 'RUNNING' ||
+        !Number.isInteger(watchdog.sampleCount) ||
+        watchdog.sampleCount < 1
+      ) {
+        throw new Error('watchdog artifact is invalid');
+      }
+    }
     const appMetrics = await collectApplicationMetrics(config, resultDirectory);
     const serverEnqueued = Number(
       appMetrics.summary?.counters?.enqueue?.success ?? NaN,
     );
+    if (longRunScenario) {
+      const reasons = [...(summary.verdict?.reasons || [])];
+      if (!audit.consistency.pass) reasons.push('CONSISTENCY_AUDIT_FAILED');
+      if (!appMetrics.valid) reasons.push('OBSERVABILITY_INVALID');
+      if (watchdog.status !== 'COMPLETED') {
+        reasons.push(watchdog.abortReason || 'WATCHDOG_INCOMPLETE');
+      }
+      if (watchdog.processRestarts > 0) {
+        reasons.push('APPLICATION_RESTART_OBSERVED');
+      }
+      if (watchdog.redisEvictions > 0) {
+        reasons.push('REDIS_EVICTION_OBSERVED');
+      }
+      const persistenceP95 =
+        appMetrics.summary?.histograms?.persistenceLatencySeconds
+          ?.p95UpperBound;
+      if (persistenceP95 === null || persistenceP95 > 2) {
+        reasons.push('PERSISTENCE_LATENCY_SLO_EXCEEDED');
+      }
+      if (audit.drain.elapsedMs >= 30000) reasons.push('DRAIN_SLO_EXCEEDED');
+      const firstRss = Number(watchdog.trends?.rssFirstBytes || 0);
+      const lastRss = Number(watchdog.trends?.rssLastBytes || 0);
+      const rssGrowthRatio =
+        firstRss > 0 ? (lastRss - firstRss) / firstRss : null;
+      const positiveStepRatio =
+        watchdog.sampleCount > 1
+          ? Number(watchdog.trends?.rssPositiveSteps || 0) /
+            (watchdog.sampleCount - 1)
+          : null;
+      let measurements;
+      if (config.scenario === 'spike') {
+        const phases = Object.fromEntries(
+          (summary.longRunPhases || []).map((phase) => [phase.phase, phase]),
+        );
+        const baselineP95 = Number(
+          phases.baseline?.acceptedLatency?.['p(95)'] ?? NaN,
+        );
+        const recoveryP95 = Number(
+          phases.recovery?.acceptedLatency?.['p(95)'] ?? NaN,
+        );
+        const recoveryLatencyRatio =
+          Number.isFinite(baselineP95) &&
+          baselineP95 > 0 &&
+          Number.isFinite(recoveryP95)
+            ? recoveryP95 / baselineP95
+            : null;
+        if (recoveryLatencyRatio === null) {
+          reasons.push('RECOVERY_LATENCY_UNAVAILABLE');
+        } else if (recoveryLatencyRatio > config.spikeRecoveryMaxLatencyRatio) {
+          reasons.push('RECOVERY_LATENCY_NOT_BASELINE');
+        }
+        measurements = {
+          baselineAcceptedP95Ms: Number.isFinite(baselineP95)
+            ? baselineP95
+            : null,
+          peakAcceptedP95Ms: phases.peak?.acceptedLatency?.['p(95)'] ?? null,
+          recoveryAcceptedP95Ms: Number.isFinite(recoveryP95)
+            ? recoveryP95
+            : null,
+          recoveryLatencyRatio,
+          recoveryLatencyRatioLimit: config.spikeRecoveryMaxLatencyRatio,
+          recoveryWindowUpperBoundMs: config.spikeRecoveryDurationMs,
+          postLoadDrainMs: audit.drain.elapsedMs,
+          maximumQueueDepth: audit.counters.maxQueueDepth,
+          persistenceP95Seconds: persistenceP95 ?? null,
+        };
+      } else {
+        const invalidWindows = (summary.soakWindows || []).filter(
+          (window) =>
+            window.startedRequests < 1 ||
+            window.startedRequests !== window.completedResponses ||
+            !Number.isFinite(window.acceptedLatency?.['p(95)']) ||
+            !Number.isFinite(window.acceptedLatency?.['p(99)']) ||
+            window.acceptedLatency['p(95)'] >= 200 ||
+            window.acceptedLatency['p(99)'] >= 500 ||
+            window.unexpectedErrors !== 0 ||
+            window.timeouts !== 0,
+        );
+        if (invalidWindows.length > 0) reasons.push('SOAK_WINDOW_SLO_FAILED');
+        measurements = {
+          windows: summary.soakWindows || [],
+          rssGrowthRatio,
+          rssPositiveStepRatio: positiveStepRatio,
+          postLoadDrainMs: audit.drain.elapsedMs,
+          maximumQueueDepth: audit.counters.maxQueueDepth,
+          persistenceP95Seconds: persistenceP95 ?? null,
+        };
+      }
+      if (config.scenario === 'soak' && !config.loadTestReduced) {
+        if (
+          rssGrowthRatio === null ||
+          positiveStepRatio === null ||
+          (rssGrowthRatio > 0.1 && positiveStepRatio > 0.8)
+        ) {
+          reasons.push('MEMORY_GROWTH_TREND');
+        }
+      }
+      const uniqueReasons = [...new Set(reasons)];
+      audit.experimentVerdict = config.loadTestReduced
+        ? {
+            kind:
+              config.scenario === 'spike'
+                ? 'recovery-preflight'
+                : 'endurance-preflight',
+            status: 'NOT_APPLICABLE',
+            integrationChecksPassed: uniqueReasons.length === 0,
+            reasons: uniqueReasons,
+            measurements,
+          }
+        : {
+            kind: config.scenario === 'spike' ? 'recovery' : 'endurance',
+            status: uniqueReasons.length === 0 ? 'PASS' : 'FAIL',
+            reasons: uniqueReasons,
+            measurements,
+          };
+    }
     const serverMetrics = {
       schemaVersion: 2,
       runId: config.runId,
@@ -564,7 +751,32 @@ async function main() {
               completedResponseRps:
                 summary.rpsLoad?.completedResponseRps ?? null,
             }
-          : null,
+          : longRunScenario
+            ? {
+                timeUnit: config.loadTimeUnit,
+                measurementWindowMs: config.loadDurationMs,
+                offeredIterations:
+                  summary.longRunLoad?.offeredIterations ?? null,
+                startedReservationRequests:
+                  summary.longRunLoad?.startedReservationRequests ?? null,
+                serverEnqueued: Number.isFinite(serverEnqueued)
+                  ? serverEnqueued
+                  : null,
+                completedResponses:
+                  summary.longRunLoad?.completedResponses ?? null,
+                droppedIterations:
+                  summary.longRunLoad?.droppedIterations ?? null,
+                offeredRps: summary.longRunLoad?.offeredRps ?? null,
+                startedReservationRps:
+                  summary.longRunLoad?.startedReservationRps ?? null,
+                serverEnqueueRps: Number.isFinite(serverEnqueued)
+                  ? serverEnqueued / (config.loadDurationMs / 1000)
+                  : null,
+                completedResponseRps:
+                  summary.longRunLoad?.completedResponseRps ?? null,
+              }
+            : null,
+      watchdog,
       database: {
         status: 'available',
         reason: null,
@@ -621,7 +833,11 @@ async function main() {
         ? config.scenario === 'capacity-vu'
           ? `${config.capacityProfile} VU 탐색의 실제 RPS, outcome별 지연, 자원 포화와 최종 ID 정합성을 기록한다.`
           : `${config.rpsTestProfile} arrival-rate의 offered/start/enqueue/completed RPS와 최종 ID 정합성을 기록한다.`
-        : `${config.scenario} 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정확히 일치하는지 검증한다.`,
+        : longRunScenario
+          ? config.scenario === 'spike'
+            ? '기준·급증·회복 구간의 지연, 오류, queue 회복과 최종 ID 정합성을 기록한다.'
+            : '지속 부하 구간의 지연, 메모리·queue 추세, 재시작과 최종 ID 정합성을 기록한다.'
+          : `${config.scenario} 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정확히 일치하는지 검증한다.`,
       '',
       '## 조건',
       '',
@@ -643,6 +859,15 @@ async function main() {
             `- Request budget: ${config.rpsRequestBudget}`,
           ]
         : []),
+      ...(longRunScenario
+        ? [
+            `- Reduced / timeUnit: ${config.loadTestReduced} / ${config.loadTimeUnit}`,
+            `- Pre-allocated / max VUs: ${config.loadPreAllocatedVus} / ${config.loadMaxVus}`,
+            `- Scheduled / budget requests: ${config.loadScheduledRequests} / ${config.loadRequestBudget}`,
+            `- Authentication TTL / required: ${config.loadAccessTokenTtlSeconds}s / ${Math.ceil(config.loadRequiredTokenTtlMs / 1000)}s`,
+            `- Watchdog poll / consecutive violations: ${config.watchdogPollIntervalMs}ms / ${config.watchdogConsecutiveViolations}`,
+          ]
+        : []),
       `- Expected accepted / conflict: ${expectedAccepted} / ${expectedConflicts}`,
       `- Performance ID: ${fixtureSource.performanceId}`,
       '',
@@ -662,6 +887,25 @@ async function main() {
             `- Offered / started / server enqueue / completed count: ${summary.rpsLoad?.offeredIterations ?? 'unavailable'} / ${summary.rpsLoad?.startedReservationRequests ?? 'unavailable'} / ${Number.isFinite(serverEnqueued) ? serverEnqueued : 'unavailable'} / ${summary.rpsLoad?.completedResponses ?? 'unavailable'}`,
             `- Offered / started / server enqueue / completed RPS: ${summary.rpsLoad?.offeredRps?.toFixed(2) ?? 'unavailable'} / ${summary.rpsLoad?.startedReservationRps?.toFixed(2) ?? 'unavailable'} / ${Number.isFinite(serverEnqueued) ? (serverEnqueued / (config.rpsLoadDurationMs / 1000)).toFixed(2) : 'unavailable'} / ${summary.rpsLoad?.completedResponseRps?.toFixed(2) ?? 'unavailable'}`,
             `- Dropped iterations: ${summary.rpsLoad?.droppedIterations ?? 'unavailable'}`,
+          ]
+        : []),
+      ...(longRunScenario
+        ? [
+            `- Offered / started / server enqueue / completed count: ${summary.longRunLoad?.offeredIterations ?? 'unavailable'} / ${summary.longRunLoad?.startedReservationRequests ?? 'unavailable'} / ${Number.isFinite(serverEnqueued) ? serverEnqueued : 'unavailable'} / ${summary.longRunLoad?.completedResponses ?? 'unavailable'}`,
+            `- Dropped iterations: ${summary.longRunLoad?.droppedIterations ?? 'unavailable'}`,
+            `- Maximum queue depth: ${audit.counters.maxQueueDepth}`,
+            `- Persistence p95 upper bound: ${appMetrics.summary?.histograms?.persistenceLatencySeconds?.p95UpperBound ?? 'unavailable'}s`,
+            `- Watchdog max DB ratio / event-loop lag / generator CPU: ${watchdog.maxima.databaseConnectionRatio} / ${watchdog.maxima.eventLoopLagMs}ms / ${watchdog.maxima.generatorCpuPercent}%`,
+            `- Watchdog Redis evictions / process restarts: ${watchdog.redisEvictions} / ${watchdog.processRestarts}`,
+            ...(config.scenario === 'spike'
+              ? [
+                  `- Baseline / peak / recovery accepted p95: ${audit.experimentVerdict.measurements.baselineAcceptedP95Ms}ms / ${audit.experimentVerdict.measurements.peakAcceptedP95Ms}ms / ${audit.experimentVerdict.measurements.recoveryAcceptedP95Ms}ms`,
+                  `- Recovery latency ratio / limit: ${audit.experimentVerdict.measurements.recoveryLatencyRatio} / ${audit.experimentVerdict.measurements.recoveryLatencyRatioLimit}`,
+                ]
+              : [
+                  `- Soak SLO windows: ${audit.experimentVerdict.measurements.windows.length} equal windows`,
+                  `- RSS growth / positive-step ratio: ${audit.experimentVerdict.measurements.rssGrowthRatio} / ${audit.experimentVerdict.measurements.rssPositiveStepRatio}`,
+                ]),
           ]
         : []),
       ...(audit.rebooking
@@ -689,6 +933,12 @@ async function main() {
             `- RPS verdict reasons: ${summary.verdict.reasons?.length ? summary.verdict.reasons.join(', ') : 'none'}`,
           ]
         : []),
+      ...(longRunScenario
+        ? [
+            `- Experiment verdict: ${audit.experimentVerdict.kind} / ${audit.experimentVerdict.status}`,
+            `- Experiment reasons: ${audit.experimentVerdict.reasons.length ? audit.experimentVerdict.reasons.join(', ') : 'none'}`,
+          ]
+        : []),
       '',
       '## 한계',
       '',
@@ -703,7 +953,11 @@ async function main() {
               config.rpsTestProfile === 'confirm-110'
             ? '- 이 Run은 한계·붕괴 관찰용이며 지속 가능한 처리량 PASS 근거가 아니다.'
             : '- 확정 profile은 같은 조건을 최소 3회 재현하기 전에는 지속 가능한 처리량 근거가 아니다.'
-        : '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
+        : longRunScenario
+          ? config.loadTestReduced
+            ? '- 축소 Run은 watchdog·drain·감사 연결 검증이며 Spike 회복성 또는 Soak 지속성을 입증하지 않는다.'
+            : '- 승인된 원격 시계열과 반복 재현이 없으면 최종 회복성·지속성 근거로 사용하지 않는다.'
+          : '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
       '',
       '## 다음 결정',
       '',
@@ -711,9 +965,11 @@ async function main() {
         ? config.scenario === 'capacity-vu'
           ? '- 단계별 실제 RPS, outcome latency, 앱·DB·Redis 지표와 queue drain을 함께 보고 다음 탐색 범위를 결정한다.'
           : '- offered/start/enqueue/completed RPS, drop, latency, 자원과 queue drain을 함께 보고 다음 탐색 또는 확정 비율을 결정한다.'
-        : audit.consistency.pass
-          ? '- ID 감사 기반을 후속 정합성 시나리오에 재사용한다.'
-          : '- 후속 부하 단계를 중단하고 실패 ID와 queue 상태를 조사한다.',
+        : longRunScenario
+          ? '- watchdog 최대값, 구간별 SLO, queue drain, DB ID 감사와 자원 추세를 함께 검토한다.'
+          : audit.consistency.pass
+            ? '- ID 감사 기반을 후속 정합성 시나리오에 재사용한다.'
+            : '- 후속 부하 단계를 중단하고 실패 ID와 queue 상태를 조사한다.',
       '',
     ].join('\n');
 

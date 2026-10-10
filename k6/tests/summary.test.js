@@ -138,3 +138,72 @@ test('separates offered, started, completed, and dropped RPS', () => {
   assert.equal(summary.verdict.status, 'LIMIT_FOUND');
   assert.equal(summary.verdict.regressionStatus, 'NOT_APPLICABLE');
 });
+
+test('keeps six independent Soak SLO windows', () => {
+  const metrics = {
+    load_requests_started: {
+      type: 'counter',
+      contains: 'default',
+      values: { count: 60 },
+      thresholds: {},
+    },
+    load_responses_completed: {
+      type: 'counter',
+      contains: 'default',
+      values: { count: 60 },
+      thresholds: {},
+    },
+  };
+  for (let index = 1; index <= 6; index += 1) {
+    metrics[`soak_window_${index}_requests_started`] = {
+      type: 'counter',
+      contains: 'default',
+      values: { count: 10 },
+      thresholds: {},
+    };
+    metrics[`soak_window_${index}_responses_completed`] = {
+      type: 'counter',
+      contains: 'default',
+      values: { count: 10 },
+      thresholds: {},
+    };
+    metrics[`soak_window_${index}_accepted_duration_ms`] = {
+      type: 'trend',
+      contains: 'time',
+      values: { 'p(95)': 100 + index, 'p(99)': 200 + index },
+      thresholds: { 'p(95)<200': { ok: true }, 'p(99)<500': { ok: true } },
+    };
+  }
+
+  const summary = buildSummary(
+    {
+      runId: 'soak-summary',
+      scenario: 'soak',
+      soakDurationMs: 3600000,
+      soakRps: 10,
+      loadDurationMs: 3600000,
+      loadTimeUnit: '1s',
+      loadTestReduced: true,
+    },
+    { metrics },
+  );
+
+  assert.equal(summary.soakWindows.length, 6);
+  assert.deepEqual(
+    summary.soakWindows.map((window) => [
+      window.startedAtMs,
+      window.endedAtMs,
+      window.startedRequests,
+      window.acceptedLatency['p(95)'],
+    ]),
+    [
+      [0, 600000, 10, 101],
+      [600000, 1200000, 10, 102],
+      [1200000, 1800000, 10, 103],
+      [1800000, 2400000, 10, 104],
+      [2400000, 3000000, 10, 105],
+      [3000000, 3600000, 10, 106],
+    ],
+  );
+  assert.equal(summary.verdict.integrationChecksPassed, true);
+});

@@ -20,6 +20,9 @@ const FAILURE_CODES = new Set([
   'ARTIFACT_VALIDATION_FAILED',
   'AUDIT_FAILED',
   'RUNNER_FAILED',
+  'WATCHDOG_ABORTED',
+  'WATCHDOG_FAILED',
+  'K6_THRESHOLD_ABORTED',
 ]);
 const SUMMARY_METRICS = new Set([
   'checks',
@@ -31,6 +34,7 @@ const SUMMARY_METRICS = new Set([
   'expected_conflict',
   'unexpected_error',
   'timeout',
+  'unexpected_error_rate',
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
@@ -54,6 +58,35 @@ const SUMMARY_METRICS = new Set([
   'rps_stage_2_responses_completed',
   'rps_stage_3_responses_completed',
   'rps_stage_4_responses_completed',
+  'load_requests_started',
+  'load_responses_completed',
+  'spike_baseline_requests_started',
+  'spike_baseline_responses_completed',
+  'spike_baseline_accepted_duration_ms',
+  'spike_baseline_unexpected_error',
+  'spike_baseline_timeout',
+  'spike_peak_requests_started',
+  'spike_peak_responses_completed',
+  'spike_peak_accepted_duration_ms',
+  'spike_peak_unexpected_error',
+  'spike_peak_timeout',
+  'spike_recovery_requests_started',
+  'spike_recovery_responses_completed',
+  'spike_recovery_accepted_duration_ms',
+  'spike_recovery_unexpected_error',
+  'spike_recovery_timeout',
+  'soak_requests_started',
+  'soak_responses_completed',
+  'soak_accepted_duration_ms',
+  'soak_unexpected_error',
+  'soak_timeout',
+  ...Array.from({ length: 6 }, (_, index) => [
+    `soak_window_${index + 1}_requests_started`,
+    `soak_window_${index + 1}_responses_completed`,
+    `soak_window_${index + 1}_accepted_duration_ms`,
+    `soak_window_${index + 1}_unexpected_error`,
+    `soak_window_${index + 1}_timeout`,
+  ]).flat(),
 ]);
 const SENSITIVE_KEY =
   /(authorization|password|secret|access.?token|refresh.?token|database.?url|redis.?url|preflight.?token)/i;
@@ -131,6 +164,7 @@ async function getPaths(config) {
       resultDirectory,
       '.app-metrics-baseline.json.tmp',
     ),
+    watchdogTemp: path.join(resultDirectory, '.watchdog.json.tmp'),
     reportTemp: path.join(resultDirectory, '.report.md.tmp'),
     report: path.join(resultDirectory, 'report.md'),
     checksums: path.join(resultDirectory, 'checksums.sha256'),
@@ -228,6 +262,15 @@ function validateAudit(audit, config) {
   ) {
     throw new Error('rebooking audit schema is invalid');
   }
+  if (
+    ['spike', 'soak'].includes(config.scenario) &&
+    (!audit.experimentVerdict ||
+      typeof audit.experimentVerdict.kind !== 'string' ||
+      typeof audit.experimentVerdict.status !== 'string' ||
+      !Array.isArray(audit.experimentVerdict.reasons))
+  ) {
+    throw new Error('long-run experiment verdict is invalid');
+  }
   assertNoSecrets(audit, 'consistency audit');
 }
 
@@ -259,6 +302,15 @@ function validateServerMetrics(metrics, config) {
       !metrics.pm2)
   ) {
     throw new Error('server metrics observability schema is invalid');
+  }
+  if (
+    ['spike', 'soak'].includes(config.scenario) &&
+    (!metrics.load ||
+      !metrics.watchdog ||
+      metrics.watchdog.runId !== config.runId ||
+      !['COMPLETED', 'ABORTED'].includes(metrics.watchdog.status))
+  ) {
+    throw new Error('long-run watchdog metrics are invalid');
   }
   assertNoSecrets(metrics, 'server metrics');
 }
@@ -341,6 +393,7 @@ export async function markIncomplete(config, execution, statusReason) {
     paths.auditTemp,
     paths.metricsTemp,
     paths.metricsBaselineTemp,
+    paths.watchdogTemp,
     paths.reportTemp,
   ]) {
     try {
@@ -404,7 +457,7 @@ export async function finalizeArtifacts(config, execution, statusReason) {
       pass: audit.consistency.pass,
       reasons: audit.consistency.reasons,
     },
-    verdict: summary.verdict,
+    verdict: audit.experimentVerdict || summary.verdict,
     artifacts: [
       'metadata.json',
       'fixture-manifest.json',
@@ -439,6 +492,9 @@ export async function finalizeArtifacts(config, execution, statusReason) {
     unlink(paths.auditTemp),
     unlink(paths.metricsTemp),
     unlink(paths.metricsBaselineTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
+    unlink(paths.watchdogTemp).catch((error) => {
       if (!error || error.code !== 'ENOENT') throw error;
     }),
     unlink(paths.reportTemp),

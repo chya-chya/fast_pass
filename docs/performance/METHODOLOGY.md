@@ -59,6 +59,16 @@
 
 탐색 verdict는 drop 또는 threshold 초과가 있으면 `LIMIT_FOUND`, 없으면 `LIMIT_NOT_FOUND`이며 항상 `regressionStatus=NOT_APPLICABLE`이다. 원인은 drop, 지연, 요청 품질 threshold별로 metadata에 남긴다. `confirm-50`, `confirm-75`, `confirm-100`만 outcome SLO와 `dropped_iterations=0`을 모두 적용해 `PASS/FAIL`을 판정한다. `confirm-110`은 `exploratory-overload / NOT_APPLICABLE`이며 `limitStatus`만 기록한다. 확정 PASS도 동일 조건을 최소 3회 재현하고 원격 시계열 자격을 갖추기 전에는 지속 가능한 처리량 주장이 아니다.
 
+## Spike·Soak 장기부하 계약
+
+`spike`는 열린 부하 모델의 세 구간을 겹치지 않게 예약하고, baseline·peak·recovery마다 고유한 global iteration 영역을 사용한다. 기본 profile은 `300 RPS × 2m → 1,000 RPS × 30s → 300 RPS × 3m`이다. peak와 recovery의 accepted p95/p99, recovery 오류·timeout, baseline 대비 recovery p95 비율, dropped iteration, queue 최대 길이와 drain을 함께 판정한다.
+
+`soak`는 검증된 지속 가능 RPS의 60~70%를 최소 60분 유지한다. 기본값은 65%이며 실행 시간을 6개 동일 구간으로 나눠 각 구간의 accepted p95/p99, 요청 시작·완료, 오류·timeout을 독립 판정한다. 전체 평균만으로 중간 열화를 가리지 않는다. RSS·queue 증가 추세, restart, Redis eviction, persistence latency와 최종 drain·ID 감사가 endurance verdict에 포함된다.
+
+두 시나리오는 `목표 RPS × 실행 초 × 고유 좌석 1 × 안전 여유`로 fixture를 선계산한다. 사용자·좌석·DB 행·DB/Redis/저장 byte, seed/cleanup 시간과 인증 TTL을 preflight metadata에 남기고 승인 상한을 넘으면 fail-closed한다. 전체 계약과 운영 절차는 [LOAD_TEST_RUNBOOK.md](./LOAD_TEST_RUNBOOK.md)를 따른다.
+
+11단계의 로컬 축소 실행은 watchdog·drain·감사 연결 검증이며 성능 qualification이 아니다. 따라서 verdict는 `recovery-preflight` 또는 `endurance-preflight`와 `NOT_APPLICABLE`로 남긴다. 승인된 원격 환경에서 full profile을 실행하기 전에는 `PASS`나 지속 가능 처리량을 주장하지 않는다.
+
 ## 지표 계약
 
 | 지표                                           | 종류      | label             | 의미                                                                                            |

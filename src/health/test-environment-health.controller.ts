@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { assertTestEnvironmentAccess } from './test-environment-access';
 import { readTracingConfig } from '../observability/tracing-config';
+import { readAccessTokenTtlSeconds } from '../auth/access-token-ttl';
 
 type RedisHealthClient = {
   get(key: string): Promise<string | null>;
@@ -150,6 +151,9 @@ export class TestEnvironmentHealthController {
           tracingEnabled: tracing.enabled,
           traceSampleRatio: tracing.sampleRatio,
           minSpanDurationMs: tracing.minSpanDurationMs,
+        },
+        authentication: {
+          accessTokenTtlSeconds: readAccessTokenTtlSeconds(),
         },
       };
     } catch {

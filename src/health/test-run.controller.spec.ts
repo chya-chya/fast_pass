@@ -236,6 +236,45 @@ describe('TestRunController', () => {
     });
   });
 
+  it('registers only unique-seat Spike and Soak fixtures', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const controller = new TestRunController(redis);
+    await expect(
+      controller.registerFixture('spike-run', 'p'.repeat(32), {
+        scenario: 'spike',
+        capacityProfile: 'unique-seat',
+        cacheProfile: 'cold',
+        userIds: ['user-1', 'user-2'],
+        eventId: 'event-1',
+        performanceId: 'performance-1',
+        seatIds: ['seat-1', 'seat-2'],
+        requestManifest: {
+          schemaVersion: 2,
+          requestBudget: 2,
+          assignment: 'global_iteration_unique_seat',
+        },
+      }),
+    ).resolves.toEqual({ runId: 'spike-run', producerState: 'OPEN' });
+
+    await expect(
+      controller.registerFixture('soak-hot-run', 'p'.repeat(32), {
+        scenario: 'soak',
+        capacityProfile: 'hot-seat',
+        cacheProfile: 'cold',
+        userIds: ['user-1'],
+        eventId: 'event-1',
+        performanceId: 'performance-1',
+        seatIds: ['seat-1'],
+        requestManifest: {
+          schemaVersion: 2,
+          requestBudget: 1,
+          assignment: 'global_iteration_hot_seat',
+        },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('rejects duplicate fixture IDs and existing runs', async () => {
     configureEnvironment();
     const redis = redisMock();

@@ -10,7 +10,7 @@
 k6/run.sh --dry-run
 ```
 
-이 명령은 네트워크 요청이나 결과 디렉터리 생성을 하지 않는다. 실제 실행은 동일한 필수 환경변수를 설정한 뒤 `k6/run.sh`로 시작한다. `SCENARIO`은 `smoke`, `consistency-one-seat`, `consistency-inventory`, `rebooking`, `capacity-vu`, `capacity-rps` 중 하나이며 검증된 정확한 script만 선택한다.
+이 명령은 네트워크 요청이나 결과 디렉터리 생성을 하지 않는다. 실제 실행은 동일한 필수 환경변수를 설정한 뒤 `k6/run.sh`로 시작한다. `SCENARIO`은 `smoke`, `consistency-one-seat`, `consistency-inventory`, `rebooking`, `capacity-vu`, `capacity-rps`, `spike`, `soak` 중 하나이며 검증된 정확한 script만 선택한다.
 
 5단계 구현과 축소 통합 실행 근거는 [5단계 검증 기록](../../docs/performance/PHASE5_VERIFICATION.md)에 별도로 보관한다.
 
@@ -60,6 +60,8 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 `capacity-vu`의 `CAPACITY_VU_STAGES`, 단계별 hold, ramp, profile, 사용자 행동, think time과 request budget 계약은 [METHODOLOGY.md](../../docs/performance/METHODOLOGY.md#vu-capacity-탐색-계약)에 정의한다. 로컬 실제 실행은 최대 20 VU, 2분, 500 requests로 제한하며 기본 2,000 VU profile은 inspect만 허용한다.
 
 `capacity-rps`의 탐색·확정 profile, `timeUnit=1s`, VU pool, request budget, 네 가지 RPS 경계와 verdict 계약은 [METHODOLOGY.md](../../docs/performance/METHODOLOGY.md#rps-capacity-탐색확정-계약)에 정의한다. 로컬 실제 실행은 최대 20 RPS, 1분, 500 requests, 100 max VU로 제한하며 기본 100→1,000 RPS 탐색은 inspect만 허용한다.
+
+`spike`와 `soak`의 profile, fixture 용량·인증 TTL, watchdog, verdict, 승인·cleanup 절차는 [LOAD_TEST_RUNBOOK.md](../../docs/performance/LOAD_TEST_RUNBOOK.md)에 정의한다. 원격 실행은 11단계에서 항상 차단하며, 로컬은 `LOAD_TEST_REDUCED=true`, 최대 20 RPS·1분·500 requests·100 max VU와 `api-array` seed만 허용한다.
 
 `--dry-run`은 위 항목 중 비밀이 아닌 최종 해석값만 JSON으로 출력한다. DB/Redis URL, token, password, JWT/AWS secret은 출력하거나 보관하지 않는다.
 

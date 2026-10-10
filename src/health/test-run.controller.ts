@@ -36,7 +36,9 @@ type FixtureScenario =
   | 'consistency-inventory'
   | 'rebooking'
   | 'capacity-vu'
-  | 'capacity-rps';
+  | 'capacity-rps'
+  | 'spike'
+  | 'soak';
 
 type FixtureInput = {
   userIds: string[];
@@ -112,6 +114,8 @@ function parseFixture(body: unknown): FixtureInput {
       'rebooking',
       'capacity-vu',
       'capacity-rps',
+      'spike',
+      'soak',
     ].includes(candidate.scenario) ||
     !['warm', 'cold'].includes(String(candidate.cacheProfile)) ||
     !candidate.requestManifest ||
@@ -122,13 +126,15 @@ function parseFixture(body: unknown): FixtureInput {
   }
   const requestManifest = candidate.requestManifest as Record<string, unknown>;
   const scenario = candidate.scenario as FixtureScenario;
-  if (scenario === 'capacity-vu' || scenario === 'capacity-rps') {
+  if (['capacity-vu', 'capacity-rps', 'spike', 'soak'].includes(scenario)) {
     const capacityProfile = candidate.capacityProfile;
     const assignment = requestManifest.assignment;
     const requestBudget = requestManifest.requestBudget;
     if (
       typeof capacityProfile !== 'string' ||
       !['unique-seat', 'hot-seat'].includes(capacityProfile) ||
+      (['spike', 'soak'].includes(scenario) &&
+        capacityProfile !== 'unique-seat') ||
       (scenario === 'capacity-vu' &&
         (typeof candidate.userBehavior !== 'string' ||
           !['reserve-then-think', 'think-then-reserve'].includes(

@@ -285,3 +285,74 @@ test('rejects non-second time units and invalid RPS VU allocation', () => {
     /RPS_TIME_UNIT must equal 1s|must be at most/,
   );
 });
+
+test('builds the default Spike fixture and authentication budget', () => {
+  const config = loadConfig({ SCENARIO: 'spike' });
+  assert.equal(config.executor, 'constant-arrival-rate');
+  assert.equal(config.spikeBaselineRps, 300);
+  assert.equal(config.spikePeakRps, 1000);
+  assert.equal(config.loadDurationMs, 330000);
+  assert.equal(config.loadScheduledRequests, 120000);
+  assert.equal(config.loadRequiredRequestBudget, 132000);
+  assert.equal(config.fixtureCapacityPlan.seats, 132000);
+  assert.equal(config.loadAccessTokenTtlSeconds, 7200);
+});
+
+test('derives the default Soak rate from confirmed capacity', () => {
+  const config = loadConfig({ SCENARIO: 'soak' });
+  assert.equal(config.soakRatePercent, 65);
+  assert.equal(config.soakRps, 325);
+  assert.equal(config.soakDurationMs, 3600000);
+  assert.equal(config.loadScheduledRequests, 1170000);
+  assert.equal(config.loadRequiredRequestBudget, 1287000);
+});
+
+test('accepts only an explicitly reduced local Spike profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'spike',
+      RUN_ID: 'spike-local',
+      RPS: undefined,
+      DURATION: undefined,
+      LOAD_TEST_REDUCED: 'true',
+      SPIKE_BASELINE_RPS: '2',
+      SPIKE_PEAK_RPS: '4',
+      SPIKE_BASELINE_DURATION: '2s',
+      SPIKE_PEAK_DURATION: '2s',
+      SPIKE_RECOVERY_DURATION: '3s',
+      LOAD_PRE_ALLOCATED_VUS: '4',
+      LOAD_MAX_VUS: '10',
+      LOAD_REQUEST_BUDGET: '64',
+      FIXTURE_SEED_MODE: 'api-array',
+      FIXTURE_MAX_USERS: '10',
+      FIXTURE_MAX_SEATS: '64',
+      FIXTURE_MAX_DATABASE_ROWS: '200',
+      FIXTURE_MAX_DATABASE_BYTES: '1000000',
+      FIXTURE_MAX_REDIS_BYTES: '1000000',
+      FIXTURE_MAX_STORAGE_BYTES: '1000000',
+      LOAD_SETUP_ALLOWANCE: '5m',
+      LOAD_DRAIN_ALLOWANCE: '1m',
+      LOAD_AUDIT_ALLOWANCE: '1m',
+      LOAD_TOKEN_SAFETY: '1m',
+      LOAD_ACCESS_TOKEN_TTL: '15m',
+      USER_COUNT: '10',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.loadTestReduced, true);
+  assert.equal(config.loadDurationMs, 7000);
+  assert.equal(config.loadRequiredRequestBudget, 21);
+});
+
+test('rejects shortened Soak without reduced mode and insufficient TTL', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'soak',
+        SOAK_DURATION: '5m',
+        LOAD_ACCESS_TOKEN_TTL: '60m',
+      }),
+    /SOAK_DURATION must be at least 60m|LOAD_ACCESS_TOKEN_TTL must cover/,
+  );
+});

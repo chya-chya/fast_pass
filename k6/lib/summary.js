@@ -1,4 +1,5 @@
 import { buildRpsVerdict } from './rps.js';
+import { buildLongRunVerdict } from './endurance.js';
 
 const ALLOWED_METRICS = Object.freeze([
   'checks',
@@ -10,6 +11,7 @@ const ALLOWED_METRICS = Object.freeze([
   'expected_conflict',
   'unexpected_error',
   'timeout',
+  'unexpected_error_rate',
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
@@ -33,6 +35,35 @@ const ALLOWED_METRICS = Object.freeze([
   'rps_stage_2_responses_completed',
   'rps_stage_3_responses_completed',
   'rps_stage_4_responses_completed',
+  'load_requests_started',
+  'load_responses_completed',
+  'spike_baseline_requests_started',
+  'spike_baseline_responses_completed',
+  'spike_baseline_accepted_duration_ms',
+  'spike_baseline_unexpected_error',
+  'spike_baseline_timeout',
+  'spike_peak_requests_started',
+  'spike_peak_responses_completed',
+  'spike_peak_accepted_duration_ms',
+  'spike_peak_unexpected_error',
+  'spike_peak_timeout',
+  'spike_recovery_requests_started',
+  'spike_recovery_responses_completed',
+  'spike_recovery_accepted_duration_ms',
+  'spike_recovery_unexpected_error',
+  'spike_recovery_timeout',
+  'soak_requests_started',
+  'soak_responses_completed',
+  'soak_accepted_duration_ms',
+  'soak_unexpected_error',
+  'soak_timeout',
+  ...Array.from({ length: 6 }, (_, index) => [
+    `soak_window_${index + 1}_requests_started`,
+    `soak_window_${index + 1}_responses_completed`,
+    `soak_window_${index + 1}_accepted_duration_ms`,
+    `soak_window_${index + 1}_unexpected_error`,
+    `soak_window_${index + 1}_timeout`,
+  ]).flat(),
 ]);
 
 function cleanMetric(metric) {
@@ -163,6 +194,101 @@ export function buildSummary(config, data) {
           serverEnqueueSource: 'server-metrics.json',
         }
       : null;
+  const longRunScenario = ['spike', 'soak'].includes(config.scenario);
+  const loadStartedRequests = Number(
+    metrics.load_requests_started?.values?.count || 0,
+  );
+  const loadCompletedResponses = Number(
+    metrics.load_responses_completed?.values?.count || 0,
+  );
+  const longRunPhaseNames =
+    config.scenario === 'spike'
+      ? ['baseline', 'peak', 'recovery']
+      : config.scenario === 'soak'
+        ? ['soak']
+        : [];
+  const longRunPhases = longRunScenario
+    ? longRunPhaseNames.map((phase) => {
+        const prefix = config.scenario === 'soak' ? 'soak' : `spike_${phase}`;
+        const started = Number(
+          metrics[`${prefix}_requests_started`]?.values?.count || 0,
+        );
+        const completed = Number(
+          metrics[`${prefix}_responses_completed`]?.values?.count || 0,
+        );
+        const durationMs =
+          config.scenario === 'soak'
+            ? config.soakDurationMs
+            : phase === 'baseline'
+              ? config.spikeBaselineDurationMs
+              : phase === 'peak'
+                ? config.spikePeakDurationMs
+                : config.spikeRecoveryDurationMs;
+        const targetRps =
+          config.scenario === 'soak' || phase === 'peak'
+            ? config.scenario === 'soak'
+              ? config.soakRps
+              : config.spikePeakRps
+            : config.spikeBaselineRps;
+        return {
+          phase,
+          targetOfferedRps: targetRps,
+          durationMs,
+          startedRequests: started,
+          completedResponses: completed,
+          startedReservationRps: started / (durationMs / 1000),
+          completedResponseRps: completed / (durationMs / 1000),
+          acceptedLatency:
+            metrics[`${prefix}_accepted_duration_ms`]?.values || {},
+          unexpectedErrors: Number(
+            metrics[`${prefix}_unexpected_error`]?.values?.count || 0,
+          ),
+          timeouts: Number(metrics[`${prefix}_timeout`]?.values?.count || 0),
+        };
+      })
+    : null;
+  const longRunLoad = longRunScenario
+    ? {
+        timeUnit: config.loadTimeUnit,
+        offeredIterations: loadStartedRequests + droppedIterations,
+        startedReservationRequests: loadStartedRequests,
+        completedResponses: loadCompletedResponses,
+        droppedIterations,
+        offeredRps:
+          (loadStartedRequests + droppedIterations) /
+          (config.loadDurationMs / 1000),
+        startedReservationRps:
+          loadStartedRequests / (config.loadDurationMs / 1000),
+        completedResponseRps:
+          loadCompletedResponses / (config.loadDurationMs / 1000),
+        serverEnqueued: null,
+        serverEnqueueRps: null,
+        serverEnqueueSource: 'server-metrics.json',
+      }
+    : null;
+  const soakWindows =
+    config.scenario === 'soak'
+      ? Array.from({ length: 6 }, (_, index) => {
+          const prefix = `soak_window_${index + 1}`;
+          return {
+            window: index + 1,
+            startedAtMs: Math.floor((config.soakDurationMs * index) / 6),
+            endedAtMs: Math.floor((config.soakDurationMs * (index + 1)) / 6),
+            startedRequests: Number(
+              metrics[`${prefix}_requests_started`]?.values?.count || 0,
+            ),
+            completedResponses: Number(
+              metrics[`${prefix}_responses_completed`]?.values?.count || 0,
+            ),
+            acceptedLatency:
+              metrics[`${prefix}_accepted_duration_ms`]?.values || {},
+            unexpectedErrors: Number(
+              metrics[`${prefix}_unexpected_error`]?.values?.count || 0,
+            ),
+            timeouts: Number(metrics[`${prefix}_timeout`]?.values?.count || 0),
+          };
+        })
+      : null;
 
   return {
     schemaVersion: 1,
@@ -187,10 +313,17 @@ export function buildSummary(config, data) {
       rpsRequestBudget: config.rpsRequestBudget,
       preAllocatedVUs: config.rpsPreAllocatedVus,
       maxVUs: config.rpsMaxVus,
+      loadTestReduced: config.loadTestReduced,
+      loadRequestBudget: config.loadRequestBudget,
+      fixtureCapacityPlan: config.fixtureCapacityPlan,
+      authenticationTtlSeconds: config.loadAccessTokenTtlSeconds,
     },
     capacityStages,
     rpsStages,
     rpsLoad,
+    longRunPhases,
+    longRunLoad,
+    soakWindows,
     generatedAt: new Date().toISOString(),
     thresholdPassed: thresholdFailures.length === 0,
     thresholdFailures,
@@ -203,10 +336,12 @@ export function buildSummary(config, data) {
           }
         : config.scenario === 'capacity-rps'
           ? buildRpsVerdict(config, thresholdFailures, droppedIterations)
-          : {
-              kind: 'correctness',
-              status: thresholdFailures.length === 0 ? 'PASS' : 'FAIL',
-            },
+          : longRunScenario
+            ? buildLongRunVerdict(config, thresholdFailures, droppedIterations)
+            : {
+                kind: 'correctness',
+                status: thresholdFailures.length === 0 ? 'PASS' : 'FAIL',
+              },
     metrics,
   };
 }

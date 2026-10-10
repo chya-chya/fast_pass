@@ -56,6 +56,7 @@ async function main() {
   assertObject(body.database, 'database health');
   assertObject(body.redis, 'redis health');
   assertObject(body.observability, 'observability health');
+  assertObject(body.authentication, 'authentication health');
   assertEqual(body.appId, config.expectedAppId, 'application identity');
   assertEqual(body.buildSha, config.expectedBuildSha, 'application build');
   assertEqual(body.testEnvId, config.testEnvId, 'test environment identity');
@@ -94,6 +95,13 @@ async function main() {
     config.expectedMinSpanDurationMs,
     'trace duration filter',
   );
+  if (config.loadAccessTokenTtlSeconds) {
+    assertEqual(
+      body.authentication.accessTokenTtlSeconds,
+      config.loadAccessTokenTtlSeconds,
+      'access token TTL',
+    );
+  }
 
   process.stdout.write(
     'preflight verified: disposable environment identities match\n',
