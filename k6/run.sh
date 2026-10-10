@@ -75,7 +75,9 @@ audit_status=$?
 set -e
 
 k6_effective_status=${k6_status}
-if [[ "${SCENARIO}" == 'capacity-vu' && ${k6_status} -eq 99 ]]; then
+if [[ ${k6_status} -eq 99 ]] &&
+  { [[ "${SCENARIO}" == 'capacity-vu' ]] ||
+    [[ "${SCENARIO}" == 'capacity-rps' && "${RPS_TEST_PROFILE:-explore}" =~ ^(explore|confirm-110)$ ]]; }; then
   k6_effective_status=0
 fi
 

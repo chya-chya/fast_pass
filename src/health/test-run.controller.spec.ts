@@ -211,6 +211,31 @@ describe('TestRunController', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('registers an RPS fixture without a VU think-time contract', async () => {
+    configureEnvironment();
+    const redis = redisMock();
+    const controller = new TestRunController(redis);
+    await controller.registerFixture('rps-run', 'p'.repeat(32), {
+      scenario: 'capacity-rps',
+      capacityProfile: 'unique-seat',
+      cacheProfile: 'warm',
+      userIds: ['user-1', 'user-2'],
+      eventId: 'event-1',
+      performanceId: 'performance-1',
+      seatIds: ['seat-1', 'seat-2'],
+      requestManifest: {
+        schemaVersion: 2,
+        requestBudget: 2,
+        assignment: 'global_iteration_unique_seat',
+      },
+    });
+    expect(storedFixture(redis)).toMatchObject({
+      scenario: 'capacity-rps',
+      capacityProfile: 'unique-seat',
+      requestManifest: { schemaVersion: 2, requestBudget: 2 },
+    });
+  });
+
   it('rejects duplicate fixture IDs and existing runs', async () => {
     configureEnvironment();
     const redis = redisMock();

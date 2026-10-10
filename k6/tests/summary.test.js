@@ -89,3 +89,52 @@ test('records stage actual RPS and an exploratory capacity verdict', () => {
     sloThresholdsPassed: true,
   });
 });
+
+test('separates offered, started, completed, and dropped RPS', () => {
+  const summary = buildSummary(
+    {
+      runId: 'rps-summary',
+      scenario: 'capacity-rps',
+      rpsTestProfile: 'explore',
+      rpsTimeUnit: '1s',
+      rpsTargets: [1, 2, 3, 4],
+      rpsRampDuration: '1s',
+      rpsRampDurationMs: 1000,
+      rpsStageHolds: ['1s', '1s', '1s', '1s'],
+      rpsStageHoldMs: [1000, 1000, 1000, 1000],
+      rpsLoadDurationMs: 9000,
+      rpsRequestBudget: 64,
+      rpsPreAllocatedVus: 4,
+      rpsMaxVus: 10,
+      capacityProfile: 'unique-seat',
+    },
+    {
+      metrics: {
+        reservation_requests_started: {
+          type: 'counter',
+          contains: 'default',
+          values: { count: 9, rate: 1 },
+          thresholds: {},
+        },
+        reservation_responses_completed: {
+          type: 'counter',
+          contains: 'default',
+          values: { count: 8, rate: 0.8 },
+          thresholds: {},
+        },
+        dropped_iterations: {
+          type: 'counter',
+          contains: 'default',
+          values: { count: 1, rate: 0.1 },
+          thresholds: {},
+        },
+      },
+    },
+  );
+  assert.equal(summary.rpsLoad.offeredIterations, 10);
+  assert.equal(summary.rpsLoad.startedReservationRequests, 9);
+  assert.equal(summary.rpsLoad.completedResponses, 8);
+  assert.equal(summary.rpsLoad.droppedIterations, 1);
+  assert.equal(summary.verdict.status, 'LIMIT_FOUND');
+  assert.equal(summary.verdict.regressionStatus, 'NOT_APPLICABLE');
+});

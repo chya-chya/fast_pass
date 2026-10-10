@@ -220,3 +220,68 @@ test('rejects RPS targets and undersized capacity fixtures', () => {
     /RPS must not be set|must be at least/,
   );
 });
+
+test('uses the 100 to 1000 RPS exploration defaults', () => {
+  const config = loadConfig({ SCENARIO: 'capacity-rps' });
+  assert.equal(config.executor, 'ramping-arrival-rate');
+  assert.equal(config.rpsTimeUnit, '1s');
+  assert.deepEqual(config.rpsTargets, [100, 300, 500, 1000]);
+  assert.equal(config.rpsPreAllocatedVus, 500);
+  assert.equal(config.rpsMaxVus, 1000);
+  assert.equal(config.rpsRequiredRequestBudget, 24000);
+  assert.equal(config.rpsRequestBudget, 25000);
+});
+
+test('derives 50, 75, 100, and 110 percent confirmation rates', () => {
+  const rates = ['confirm-50', 'confirm-75', 'confirm-100', 'confirm-110'].map(
+    (profile) =>
+      loadConfig({
+        SCENARIO: 'capacity-rps',
+        RPS_TEST_PROFILE: profile,
+        RPS_RATE: '500',
+      }).rpsRate,
+  );
+  assert.deepEqual(rates, [250, 375, 500, 550]);
+});
+
+test('accepts a bounded reduced local RPS exploration profile', () => {
+  const config = loadConfig(
+    validEnvironment({
+      SCENARIO: 'capacity-rps',
+      RUN_ID: 'rps-local',
+      VU: undefined,
+      RPS: undefined,
+      DURATION: undefined,
+      RPS_TEST_PROFILE: 'explore',
+      CAPACITY_PROFILE: 'unique-seat',
+      RPS_STAGES: '1,2,3,4',
+      RPS_RAMP_DURATION: '1s',
+      RPS_STAGE_HOLD_1: '1s',
+      RPS_STAGE_HOLD_2: '1s',
+      RPS_STAGE_HOLD_3: '1s',
+      RPS_STAGE_HOLD_4: '1s',
+      RPS_PRE_ALLOCATED_VUS: '4',
+      RPS_MAX_VUS: '10',
+      RPS_REQUEST_BUDGET: '64',
+      USER_COUNT: '10',
+      SEAT_COUNT: '64',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.rpsMaxRate, 4);
+  assert.equal(config.rpsRequiredRequestBudget, 24);
+  assert.equal(config.durationMs, 9000);
+});
+
+test('rejects non-second time units and invalid RPS VU allocation', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        SCENARIO: 'capacity-rps',
+        RPS_TIME_UNIT: '1m',
+        RPS_PRE_ALLOCATED_VUS: '1001',
+        RPS_MAX_VUS: '1000',
+      }),
+    /RPS_TIME_UNIT must equal 1s|must be at most/,
+  );
+});

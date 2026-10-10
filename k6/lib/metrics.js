@@ -22,6 +22,18 @@ export const timeoutDuration = new Trend('timeout_duration_ms', true);
 export const capacityStageRequests = [1, 2, 3, 4].map(
   (stage) => new Counter(`capacity_stage_${stage}_requests`),
 );
+export const reservationRequestsStarted = new Counter(
+  'reservation_requests_started',
+);
+export const reservationResponsesCompleted = new Counter(
+  'reservation_responses_completed',
+);
+export const rpsStageRequestsStarted = [1, 2, 3, 4].map(
+  (stage) => new Counter(`rps_stage_${stage}_requests_started`),
+);
+export const rpsStageResponsesCompleted = [1, 2, 3, 4].map(
+  (stage) => new Counter(`rps_stage_${stage}_responses_completed`),
+);
 
 export function recordReservationOutcome(response, scenario = 'smoke') {
   const outcome = classifyReservationResponse(response);
@@ -53,5 +65,46 @@ export function recordCapacityOutcome(response, outcome, profile, stageIndex) {
   }
   if (outcome === 'unexpected_error')
     unexpectedErrorDuration.add(duration, tags);
+  if (outcome === 'timeout') timeoutDuration.add(duration, tags);
+}
+
+export function recordRpsRequestStarted(testProfile, dataProfile, stageIndex) {
+  const tags = {
+    endpoint: 'reservation_create',
+    scenario: 'capacity-rps',
+    rps_test_profile: testProfile,
+    capacity_profile: dataProfile,
+    rps_stage: String(stageIndex + 1),
+  };
+  reservationRequestsStarted.add(1, tags);
+  rpsStageRequestsStarted[stageIndex].add(1, tags);
+}
+
+export function recordRpsResponseCompleted(
+  response,
+  outcome,
+  testProfile,
+  dataProfile,
+  stageIndex,
+) {
+  const tags = {
+    endpoint: 'reservation_create',
+    scenario: 'capacity-rps',
+    rps_test_profile: testProfile,
+    capacity_profile: dataProfile,
+    outcome,
+    rps_stage: String(stageIndex + 1),
+  };
+  const duration = Number(response?.timings?.duration);
+  reservationResponsesCompleted.add(1, tags);
+  rpsStageResponsesCompleted[stageIndex].add(1, tags);
+  if (!Number.isFinite(duration)) return;
+  if (outcome === 'accepted') acceptedDuration.add(duration, tags);
+  if (outcome === 'expected_conflict') {
+    expectedConflictDuration.add(duration, tags);
+  }
+  if (outcome === 'unexpected_error') {
+    unexpectedErrorDuration.add(duration, tags);
+  }
   if (outcome === 'timeout') timeoutDuration.add(duration, tags);
 }

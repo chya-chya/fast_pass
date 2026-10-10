@@ -10,7 +10,7 @@
 k6/run.sh --dry-run
 ```
 
-이 명령은 네트워크 요청이나 결과 디렉터리 생성을 하지 않는다. 실제 실행은 동일한 필수 환경변수를 설정한 뒤 `k6/run.sh`로 시작한다. `SCENARIO`은 `smoke`, `consistency-one-seat`, `consistency-inventory`, `rebooking`, `capacity-vu` 중 하나이며 검증된 정확한 script만 선택한다.
+이 명령은 네트워크 요청이나 결과 디렉터리 생성을 하지 않는다. 실제 실행은 동일한 필수 환경변수를 설정한 뒤 `k6/run.sh`로 시작한다. `SCENARIO`은 `smoke`, `consistency-one-seat`, `consistency-inventory`, `rebooking`, `capacity-vu`, `capacity-rps` 중 하나이며 검증된 정확한 script만 선택한다.
 
 5단계 구현과 축소 통합 실행 근거는 [5단계 검증 기록](../../docs/performance/PHASE5_VERIFICATION.md)에 별도로 보관한다.
 
@@ -34,7 +34,7 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 | `BASE_URL`                           | `http://127.0.0.1:3000`   | 루프백 `http`/`https`만 허용한다. 경로·query·credential은 거부한다.                              |
 | `RUN_ID`                             | inspect 시 `inspect-only` | 실제 실행에서는 필수다. 3~64자의 영문자·숫자·`.`·`_`·`-`만 허용하며 `..`와 경로 문자를 거부한다. |
 | `VU`                                 | 시나리오별                | Smoke는 1~5, 정합성 시나리오는 1~1,000이다. inventory 기본값은 1,000이다.                        |
-| `RPS`                                | `1`                       | 일반 시나리오의 요청률 상한이다. `capacity-vu`에는 설정할 수 없고 실제 RPS만 기록한다.           |
+| `RPS`                                | `1`                       | 일반 시나리오의 요청률 상한이다. capacity 시나리오에는 설정하지 않고 전용 설정을 사용한다.       |
 | `DURATION`                           | `5s`                      | 1초~60초다.                                                                                      |
 | `USER_COUNT`                         | 시나리오별                | 정합성 시나리오에서는 `VU`와 정확히 같아야 한다.                                                 |
 | `SEAT_COUNT`                         | 시나리오별                | 단일 좌석은 1, inventory는 최대 50이며 `VU`를 정확히 나눠야 한다.                                |
@@ -58,6 +58,8 @@ k6 공통 분류기는 HTTP status만으로 성공이나 정상 충돌을 결정
 | `REMOTE_APPROVAL_MANIFEST`           | 없음                      | 12단계 승인 검증기의 예약 인터페이스다. 지금은 원격 실행을 허용하지 않는다.                      |
 
 `capacity-vu`의 `CAPACITY_VU_STAGES`, 단계별 hold, ramp, profile, 사용자 행동, think time과 request budget 계약은 [METHODOLOGY.md](../../docs/performance/METHODOLOGY.md#vu-capacity-탐색-계약)에 정의한다. 로컬 실제 실행은 최대 20 VU, 2분, 500 requests로 제한하며 기본 2,000 VU profile은 inspect만 허용한다.
+
+`capacity-rps`의 탐색·확정 profile, `timeUnit=1s`, VU pool, request budget, 네 가지 RPS 경계와 verdict 계약은 [METHODOLOGY.md](../../docs/performance/METHODOLOGY.md#rps-capacity-탐색확정-계약)에 정의한다. 로컬 실제 실행은 최대 20 RPS, 1분, 500 requests, 100 max VU로 제한하며 기본 100→1,000 RPS 탐색은 inspect만 허용한다.
 
 `--dry-run`은 위 항목 중 비밀이 아닌 최종 해석값만 JSON으로 출력한다. DB/Redis URL, token, password, JWT/AWS secret은 출력하거나 보관하지 않는다.
 

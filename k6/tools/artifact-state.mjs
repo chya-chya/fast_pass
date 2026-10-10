@@ -43,6 +43,17 @@ const SUMMARY_METRICS = new Set([
   'capacity_stage_2_requests',
   'capacity_stage_3_requests',
   'capacity_stage_4_requests',
+  'dropped_iterations',
+  'reservation_requests_started',
+  'reservation_responses_completed',
+  'rps_stage_1_requests_started',
+  'rps_stage_2_requests_started',
+  'rps_stage_3_requests_started',
+  'rps_stage_4_requests_started',
+  'rps_stage_1_responses_completed',
+  'rps_stage_2_responses_completed',
+  'rps_stage_3_responses_completed',
+  'rps_stage_4_responses_completed',
 ]);
 const SENSITIVE_KEY =
   /(authorization|password|secret|access.?token|refresh.?token|database.?url|redis.?url|preflight.?token)/i;

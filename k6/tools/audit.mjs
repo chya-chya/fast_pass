@@ -395,42 +395,44 @@ async function main() {
 
     const metricCount = (name) =>
       Number(summary.metrics?.[name]?.values?.count || 0);
-    const capacityRequestCount = metricCount('reservation_requests');
-    const capacityFixture =
-      config.scenario === 'capacity-vu'
-        ? buildCapacityExpectedRequestManifest(
+    const capacityScenario = ['capacity-vu', 'capacity-rps'].includes(
+      config.scenario,
+    );
+    const capacityRequestCount =
+      config.scenario === 'capacity-rps'
+        ? metricCount('reservation_requests_started')
+        : metricCount('reservation_requests');
+    const capacityFixture = capacityScenario
+      ? buildCapacityExpectedRequestManifest(
+          config.runId,
+          capacityRequestCount,
+          fixtureSource.userIds,
+          fixtureSource.seatIds,
+          fixtureSource.capacityProfile,
+          fixtureSource.requestManifest?.requestBudget,
+        )
+      : null;
+    const consistencyFixture = capacityScenario
+      ? capacityFixture
+      : fixtureSource.requestManifest
+        ? buildExpectedRequestManifest(
             config.runId,
-            capacityRequestCount,
+            fixtureSource.requestManifest.totalRequests,
             fixtureSource.userIds,
             fixtureSource.seatIds,
-            fixtureSource.capacityProfile,
-            fixtureSource.requestManifest?.requestBudget,
+            fixtureSource.requestManifest.assignment,
           )
         : null;
-    const consistencyFixture =
-      config.scenario === 'capacity-vu'
-        ? capacityFixture
-        : fixtureSource.requestManifest
-          ? buildExpectedRequestManifest(
-              config.runId,
-              fixtureSource.requestManifest.totalRequests,
-              fixtureSource.userIds,
-              fixtureSource.seatIds,
-              fixtureSource.requestManifest.assignment,
-            )
-          : null;
-    const expectedAccepted =
-      config.scenario === 'capacity-vu'
-        ? fixtureSource.capacityProfile === 'unique-seat'
-          ? capacityRequestCount
-          : Math.min(capacityRequestCount, 1)
-        : fixtureSource.expectedAccepted;
-    const expectedConflicts =
-      config.scenario === 'capacity-vu'
-        ? fixtureSource.capacityProfile === 'hot-seat'
-          ? Math.max(capacityRequestCount - 1, 0)
-          : 0
-        : fixtureSource.expectedConflicts;
+    const expectedAccepted = capacityScenario
+      ? fixtureSource.capacityProfile === 'unique-seat'
+        ? capacityRequestCount
+        : Math.min(capacityRequestCount, 1)
+      : fixtureSource.expectedAccepted;
+    const expectedConflicts = capacityScenario
+      ? fixtureSource.capacityProfile === 'hot-seat'
+        ? Math.max(capacityRequestCount - 1, 0)
+        : 0
+      : fixtureSource.expectedConflicts;
     const audit = buildConsistencyAudit({
       runId: config.runId,
       testEnvId: config.testEnvId,
@@ -440,16 +442,14 @@ async function main() {
       summaryConflicts: metricCount('expected_conflict'),
       summaryUnexpectedErrors: metricCount('unexpected_error'),
       summaryTimeouts: metricCount('timeout'),
-      summaryIterations:
-        config.scenario === 'capacity-vu'
-          ? capacityRequestCount
-          : metricCount('iterations'),
+      summaryIterations: capacityScenario
+        ? capacityRequestCount
+        : metricCount('iterations'),
       summaryFirstAccepted: metricCount('rebooking_first_accepted'),
       summarySecondAccepted: metricCount('rebooking_second_accepted'),
-      expectedIterations:
-        config.scenario === 'capacity-vu'
-          ? capacityRequestCount
-          : config.totalIterations,
+      expectedIterations: capacityScenario
+        ? capacityRequestCount
+        : config.totalIterations,
       scenario: config.scenario,
       expectedAccepted,
       expectedConflicts,
@@ -510,10 +510,9 @@ async function main() {
       thinkTimeMs: fixtureSource.thinkTimeMs ?? null,
       expectedAccepted: expectedAccepted ?? null,
       expectedConflicts: expectedConflicts ?? null,
-      requestsPerSeat:
-        config.scenario === 'capacity-vu'
-          ? consistencyFixture?.requestsPerSeat || null
-          : (fixtureSource.requestsPerSeat ?? null),
+      requestsPerSeat: capacityScenario
+        ? consistencyFixture?.requestsPerSeat || null
+        : (fixtureSource.requestsPerSeat ?? null),
       counts: {
         users: fixtureSource.userIds.length,
         events: 1,
@@ -531,6 +530,9 @@ async function main() {
        FROM pg_stat_database WHERE datname = current_database()`,
     );
     const appMetrics = await collectApplicationMetrics(config, resultDirectory);
+    const serverEnqueued = Number(
+      appMetrics.summary?.counters?.enqueue?.success ?? NaN,
+    );
     const serverMetrics = {
       schemaVersion: 2,
       runId: config.runId,
@@ -540,6 +542,29 @@ async function main() {
         timezone: 'UTC',
       },
       app: appMetrics,
+      load:
+        config.scenario === 'capacity-rps'
+          ? {
+              timeUnit: config.rpsTimeUnit,
+              measurementWindowMs: config.rpsLoadDurationMs,
+              offeredIterations: summary.rpsLoad?.offeredIterations ?? null,
+              startedReservationRequests:
+                summary.rpsLoad?.startedReservationRequests ?? null,
+              serverEnqueued: Number.isFinite(serverEnqueued)
+                ? serverEnqueued
+                : null,
+              completedResponses: summary.rpsLoad?.completedResponses ?? null,
+              droppedIterations: summary.rpsLoad?.droppedIterations ?? null,
+              offeredRps: summary.rpsLoad?.offeredRps ?? null,
+              startedReservationRps:
+                summary.rpsLoad?.startedReservationRps ?? null,
+              serverEnqueueRps: Number.isFinite(serverEnqueued)
+                ? serverEnqueued / (config.rpsLoadDurationMs / 1000)
+                : null,
+              completedResponseRps:
+                summary.rpsLoad?.completedResponseRps ?? null,
+            }
+          : null,
       database: {
         status: 'available',
         reason: null,
@@ -592,8 +617,10 @@ async function main() {
       '',
       '## 목표',
       '',
-      config.scenario === 'capacity-vu'
-        ? `${config.capacityProfile} VU 탐색의 실제 RPS, outcome별 지연, 자원 포화와 최종 ID 정합성을 기록한다.`
+      capacityScenario
+        ? config.scenario === 'capacity-vu'
+          ? `${config.capacityProfile} VU 탐색의 실제 RPS, outcome별 지연, 자원 포화와 최종 ID 정합성을 기록한다.`
+          : `${config.rpsTestProfile} arrival-rate의 offered/start/enqueue/completed RPS와 최종 ID 정합성을 기록한다.`
         : `${config.scenario} 요청 manifest, 접수 ID와 비동기 처리 후 DB 영속화 ID가 정확히 일치하는지 검증한다.`,
       '',
       '## 조건',
@@ -606,6 +633,14 @@ async function main() {
             `- Capacity profile: ${config.capacityProfile}`,
             `- User behavior / think time: ${config.capacityUserBehavior} / ${config.capacityThinkTime}`,
             `- Request budget: ${config.capacityRequestBudget}`,
+          ]
+        : []),
+      ...(config.scenario === 'capacity-rps'
+        ? [
+            `- RPS test / data profile: ${config.rpsTestProfile} / ${config.capacityProfile}`,
+            `- Executor / timeUnit: ${config.executor} / ${config.rpsTimeUnit}`,
+            `- Pre-allocated / max VUs: ${config.rpsPreAllocatedVus} / ${config.rpsMaxVus}`,
+            `- Request budget: ${config.rpsRequestBudget}`,
           ]
         : []),
       `- Expected accepted / conflict: ${expectedAccepted} / ${expectedConflicts}`,
@@ -621,6 +656,13 @@ async function main() {
             (stage) =>
               `- Stage ${stage.stage} (${stage.targetVus} VU) actual RPS: ${stage.actualRps.toFixed(2)}`,
           )
+        : []),
+      ...(config.scenario === 'capacity-rps'
+        ? [
+            `- Offered / started / server enqueue / completed count: ${summary.rpsLoad?.offeredIterations ?? 'unavailable'} / ${summary.rpsLoad?.startedReservationRequests ?? 'unavailable'} / ${Number.isFinite(serverEnqueued) ? serverEnqueued : 'unavailable'} / ${summary.rpsLoad?.completedResponses ?? 'unavailable'}`,
+            `- Offered / started / server enqueue / completed RPS: ${summary.rpsLoad?.offeredRps?.toFixed(2) ?? 'unavailable'} / ${summary.rpsLoad?.startedReservationRps?.toFixed(2) ?? 'unavailable'} / ${Number.isFinite(serverEnqueued) ? (serverEnqueued / (config.rpsLoadDurationMs / 1000)).toFixed(2) : 'unavailable'} / ${summary.rpsLoad?.completedResponseRps?.toFixed(2) ?? 'unavailable'}`,
+            `- Dropped iterations: ${summary.rpsLoad?.droppedIterations ?? 'unavailable'}`,
+          ]
         : []),
       ...(audit.rebooking
         ? [
@@ -641,6 +683,12 @@ async function main() {
             `- SLO threshold observation: ${summary.thresholdPassed ? 'within thresholds' : 'threshold exceeded'}`,
           ]
         : []),
+      ...(config.scenario === 'capacity-rps'
+        ? [
+            `- RPS verdict: ${summary.verdict.kind} / ${summary.verdict.status}`,
+            `- RPS verdict reasons: ${summary.verdict.reasons?.length ? summary.verdict.reasons.join(', ') : 'none'}`,
+          ]
+        : []),
       '',
       '## 한계',
       '',
@@ -648,14 +696,21 @@ async function main() {
         ? '- 애플리케이션 지표는 Run 시작·종료 `/metrics` snapshot의 차이로 기록했다.'
         : '- 애플리케이션 지표가 불완전해 server-metrics의 missing 항목을 확인해야 한다.',
       '- DB·Redis는 종료 시점 snapshot이며 세부 시계열은 아직 수집하지 않는다.',
-      config.scenario === 'capacity-vu'
-        ? '- 이 탐색 Run은 고정 RPS 회귀 PASS/FAIL이나 지속 가능한 처리량을 입증하지 않는다.'
+      capacityScenario
+        ? config.scenario === 'capacity-vu'
+          ? '- 이 탐색 Run은 고정 RPS 회귀 PASS/FAIL이나 지속 가능한 처리량을 입증하지 않는다.'
+          : config.rpsTestProfile === 'explore' ||
+              config.rpsTestProfile === 'confirm-110'
+            ? '- 이 Run은 한계·붕괴 관찰용이며 지속 가능한 처리량 PASS 근거가 아니다.'
+            : '- 확정 profile은 같은 조건을 최소 3회 재현하기 전에는 지속 가능한 처리량 근거가 아니다.'
         : '- 이 Run은 정합성 검증이며 처리량 한계를 입증하지 않는다.',
       '',
       '## 다음 결정',
       '',
-      config.scenario === 'capacity-vu'
-        ? '- 단계별 실제 RPS, outcome latency, 앱·DB·Redis 지표와 queue drain을 함께 보고 다음 탐색 범위를 결정한다.'
+      capacityScenario
+        ? config.scenario === 'capacity-vu'
+          ? '- 단계별 실제 RPS, outcome latency, 앱·DB·Redis 지표와 queue drain을 함께 보고 다음 탐색 범위를 결정한다.'
+          : '- offered/start/enqueue/completed RPS, drop, latency, 자원과 queue drain을 함께 보고 다음 탐색 또는 확정 비율을 결정한다.'
         : audit.consistency.pass
           ? '- ID 감사 기반을 후속 정합성 시나리오에 재사용한다.'
           : '- 후속 부하 단계를 중단하고 실패 ID와 queue 상태를 조사한다.',

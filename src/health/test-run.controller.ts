@@ -35,7 +35,8 @@ type FixtureScenario =
   | 'consistency-one-seat'
   | 'consistency-inventory'
   | 'rebooking'
-  | 'capacity-vu';
+  | 'capacity-vu'
+  | 'capacity-rps';
 
 type FixtureInput = {
   userIds: string[];
@@ -110,6 +111,7 @@ function parseFixture(body: unknown): FixtureInput {
       'consistency-inventory',
       'rebooking',
       'capacity-vu',
+      'capacity-rps',
     ].includes(candidate.scenario) ||
     !['warm', 'cold'].includes(String(candidate.cacheProfile)) ||
     !candidate.requestManifest ||
@@ -120,21 +122,22 @@ function parseFixture(body: unknown): FixtureInput {
   }
   const requestManifest = candidate.requestManifest as Record<string, unknown>;
   const scenario = candidate.scenario as FixtureScenario;
-  if (scenario === 'capacity-vu') {
+  if (scenario === 'capacity-vu' || scenario === 'capacity-rps') {
     const capacityProfile = candidate.capacityProfile;
     const assignment = requestManifest.assignment;
     const requestBudget = requestManifest.requestBudget;
     if (
       typeof capacityProfile !== 'string' ||
       !['unique-seat', 'hot-seat'].includes(capacityProfile) ||
-      typeof candidate.userBehavior !== 'string' ||
-      !['reserve-then-think', 'think-then-reserve'].includes(
-        candidate.userBehavior,
-      ) ||
-      typeof candidate.thinkTimeMs !== 'number' ||
-      !Number.isInteger(candidate.thinkTimeMs) ||
-      Number(candidate.thinkTimeMs) < 100 ||
-      Number(candidate.thinkTimeMs) > 300_000 ||
+      (scenario === 'capacity-vu' &&
+        (typeof candidate.userBehavior !== 'string' ||
+          !['reserve-then-think', 'think-then-reserve'].includes(
+            candidate.userBehavior,
+          ) ||
+          typeof candidate.thinkTimeMs !== 'number' ||
+          !Number.isInteger(candidate.thinkTimeMs) ||
+          Number(candidate.thinkTimeMs) < 100 ||
+          Number(candidate.thinkTimeMs) > 300_000)) ||
       requestManifest.schemaVersion !== 2 ||
       typeof requestBudget !== 'number' ||
       !Number.isInteger(requestBudget) ||
@@ -152,10 +155,12 @@ function parseFixture(body: unknown): FixtureInput {
     fixture.scenario = scenario;
     fixture.cacheProfile = candidate.cacheProfile as 'warm' | 'cold';
     fixture.capacityProfile = capacityProfile as 'unique-seat' | 'hot-seat';
-    fixture.userBehavior = candidate.userBehavior as
-      | 'reserve-then-think'
-      | 'think-then-reserve';
-    fixture.thinkTimeMs = Number(candidate.thinkTimeMs);
+    if (scenario === 'capacity-vu') {
+      fixture.userBehavior = candidate.userBehavior as
+        | 'reserve-then-think'
+        | 'think-then-reserve';
+      fixture.thinkTimeMs = Number(candidate.thinkTimeMs);
+    }
     fixture.requestManifest = {
       schemaVersion: 2,
       requestBudget: Number(requestBudget),
