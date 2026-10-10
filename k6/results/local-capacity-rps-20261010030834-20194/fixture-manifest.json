@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-rps-20261010030834-20194",
+  "testEnvId": "k6int2026101003083420194",
+  "userIds": [
+    "cmv1tenp50000p57tprjytpr8",
+    "cmv1tenu10001p57tyxqxilcr",
+    "cmv1tenym0002p57tsqtvcqbl",
+    "cmv1teo390003p57t4c7g3oir",
+    "cmv1teo7v0004p57tjchnvw1h",
+    "cmv1teocl0005p57tut1j6trj",
+    "cmv1teoh80006p57tyrg8b3f9",
+    "cmv1teolu0007p57tbv9lnfxt",
+    "cmv1teoqh0008p57txejdt1zk",
+    "cmv1teov40009p57tfp0k1v8j"
+  ],
+  "eventIds": [
+    "cmv1teoyd000ap57t0dbxox1w"
+  ],
+  "performanceIds": [
+    "cmv1teoyl000bp57tfrwjojxb"
+  ],
+  "seatIds": [
+    "cmv1teoym000cp57tbb83ek3r"
+  ],
+  "requestIds": [
+    "local-capacity-rps-20261010030834-20194-req-000000"
+  ],
+  "reservationIds": [
+    "eab08f65-4bf6-46cf-b6cd-e228b035cd7e"
+  ],
+  "scenario": "capacity-rps",
+  "cacheProfile": "warm",
+  "requestManifest": {
+    "schemaVersion": 2,
+    "requestBudget": 64,
+    "assignment": "global_iteration_hot_seat"
+  },
+  "capacityProfile": "hot-seat",
+  "userBehavior": null,
+  "thinkTimeMs": null,
+  "expectedAccepted": 1,
+  "expectedConflicts": 18,
+  "requestsPerSeat": {
+    "cmv1teoym000cp57tbb83ek3r": 19
+  },
+  "counts": {
+    "users": 10,
+    "events": 1,
+    "performances": 1,
+    "seats": 1,
+    "acceptedReservations": 1,
+    "requestAttempts": 19
+  }
+}
