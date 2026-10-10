@@ -32,19 +32,19 @@
 
 `capacity-rps`는 열린 부하 모델이며 각 iteration이 예약 HTTP 요청 하나만 만든다. 시나리오 안에는 `sleep`이 없고 `timeUnit`은 항상 `1s`다. 탐색은 `ramping-arrival-rate`, 확정은 `constant-arrival-rate`를 사용한다.
 
-| 설정                    | 기본값                  | 의미                                                                 |
-| ----------------------- | ----------------------- | -------------------------------------------------------------------- |
+| 설정                    | 기본값                  | 의미                                                                |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------- |
 | `RPS_TEST_PROFILE`      | `explore`               | `explore`, `confirm-50`, `confirm-75`, `confirm-100`, `confirm-110` |
-| `RPS_STAGES`            | `100,300,500,1000`      | 탐색용 네 개의 증가하는 offered RPS target                           |
-| `RPS_RAMP_DURATION`     | `5s`                    | 각 탐색 target과 종료 0 RPS까지의 ramp                               |
-| `RPS_STAGE_HOLD_1`~`4`  | 각각 `5s`               | 탐색 target별 유지 시간                                              |
-| `RPS_RATE`              | `500`                   | 확정 profile의 한계 후보 100% RPS                                    |
-| `RPS_DURATION`          | `30s`                   | 확정 profile 유지 시간                                               |
-| `RPS_TIME_UNIT`         | `1s`                    | 다른 값은 거부                                                       |
-| `RPS_PRE_ALLOCATED_VUS` | 최대 target RPS의 50%   | 약 500ms 동시 처리 여유를 가정한 시작 VU pool                        |
-| `RPS_MAX_VUS`           | 최대 target RPS         | 약 1초 동시 처리까지 허용하는 상한                                   |
-| `RPS_REQUEST_BUDGET`    | profile별 보수적 자동값 | 실행 전에 확보할 요청·고유 좌석 예산                                 |
-| `CAPACITY_PROFILE`      | `unique-seat`           | 정상 성공과 `hot-seat` 충돌 거절을 별도 Run으로 분리                  |
+| `RPS_STAGES`            | `100,300,500,1000`      | 탐색용 네 개의 증가하는 offered RPS target                          |
+| `RPS_RAMP_DURATION`     | `5s`                    | 각 탐색 target과 종료 0 RPS까지의 ramp                              |
+| `RPS_STAGE_HOLD_1`~`4`  | 각각 `5s`               | 탐색 target별 유지 시간                                             |
+| `RPS_RATE`              | `500`                   | 확정 profile의 한계 후보 100% RPS                                   |
+| `RPS_DURATION`          | `30s`                   | 확정 profile 유지 시간                                              |
+| `RPS_TIME_UNIT`         | `1s`                    | 다른 값은 거부                                                      |
+| `RPS_PRE_ALLOCATED_VUS` | 최대 target RPS의 50%   | 약 500ms 동시 처리 여유를 가정한 시작 VU pool                       |
+| `RPS_MAX_VUS`           | 최대 target RPS         | 약 1초 동시 처리까지 허용하는 상한                                  |
+| `RPS_REQUEST_BUDGET`    | profile별 보수적 자동값 | 실행 전에 확보할 요청·고유 좌석 예산                                |
+| `CAPACITY_PROFILE`      | `unique-seat`           | 정상 성공과 `hot-seat` 충돌 거절을 별도 Run으로 분리                |
 
 50/75/100/110% rate는 `RPS_RATE`에 각각 0.5/0.75/1/1.1을 곱하고 정수 iteration/s로 올림한다. 실제 응답 시간이 500ms 또는 1초보다 길다면 기본 VU pool이 부족할 수 있으므로 이전 탐색의 지연과 `dropped_iterations`를 근거로 두 VU 설정을 늘려야 한다. VU 자동 확장은 부하 생성기의 수용력일 뿐 서버의 지속 가능한 처리량 근거가 아니다.
 

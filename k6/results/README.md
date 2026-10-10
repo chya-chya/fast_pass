@@ -131,6 +131,20 @@ cleanup은 봉인된 artifact를 checksum으로 다시 검증한 뒤 실행한�
 
 전용 로컬 통합 환경은 `k6/tools/run-local-integration.sh`로 실행한다. 이 실행기는 저장된 로컬 이미지로만 `docker-compose.k6.yaml`을 시작하고 PostgreSQL·Redis 데이터 경로에 tmpfs를 사용한다. 서비스 포트는 루프백에만 임시 할당하고 비밀번호·JWT secret·preflight token을 매번 메모리에서 생성한다. migration과 Redis 환경 marker를 초기화하고 Smoke 및 checksum 검증을 마치면 전용 컨테이너·네트워크·임시 로그를 종료·삭제한다.
 
+## 10단계 RPS Capacity 검증 기록
+
+기본 100→300→500→1,000 RPS 탐색과 250/375/500/550 RPS 확정 profile은 정적 inspect만 수행했다. 원격 부하는 실행하지 않았으며 구현 Gate는 `STATIC_VERIFIED`다. 추가로 1→2→3→4 RPS 탐색과 4 RPS 확정을 clean source의 격리 로컬 환경에서 실행해 열린 부하 설정, 네 가지 처리량 경계, queue drain과 DB ID 감사를 확인했다.
+
+- `explore + unique-seat`: `local-capacity-rps-20261010030707-18786`, offered/started/enqueue/completed `19/19/19/19`, drop 0
+- `confirm-100 + unique-seat`: `local-capacity-rps-20261010030753-19522`, offered/started/enqueue/completed `20/20/20/20`, 각 4 RPS, drop 0, verdict PASS
+- `explore + hot-seat`: `local-capacity-rps-20261010030834-20194`, offered/started/completed `19/19/19`, accepted/enqueue 1, expected conflict 18
+- 세 Run 모두 `gitDirty=false`, consistency/observability audit PASS, pending/processing/retry/DLQ `0/0/0/0`
+- 축소 RPS는 capacity 또는 지속 가능한 처리량 근거가 아니다.
+- 구현·검증 판정: [`PHASE10_VERIFICATION.md`](../../docs/performance/PHASE10_VERIFICATION.md)
+- 상세 결과: [`explore unique-seat`](./local-capacity-rps-20261010030707-18786/), [`confirm-100 unique-seat`](./local-capacity-rps-20261010030753-19522/), [`explore hot-seat`](./local-capacity-rps-20261010030834-20194/)
+
+`local-capacity-rps-20261010030300-14863`, `local-capacity-rps-20261010030330-15393`, `local-capacity-rps-20261010030354-15891`은 최종 커밋 전 기능 연결을 확인한 dirty 진단 Run이며 최종 근거로 사용하지 않는다.
+
 ## 9단계 VU Capacity 검증 기록
 
 기본 `100 → 500 → 1,000 → 2,000 VU` profile은 정적 inspect만 수행했다. 원격 부하는 실행하지 않았으며 구현 Gate는 `STATIC_VERIFIED`다. 추가로 `1 → 2 → 3 → 4 VU` 축소 profile을 clean source의 격리 로컬 환경에서 별도 실행해 setup, outcome metric, queue drain과 DB ID 감사를 확인했다.
