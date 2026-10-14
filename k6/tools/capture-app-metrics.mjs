@@ -5,11 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from '../lib/config.js';
-import { parsePrometheusSnapshot } from '../lib/prometheus.js';
+import { collectApplicationSnapshot } from './metrics-source.mjs';
 
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(toolDirectory, '..', '..');
-const MAX_METRICS_BYTES = 2 * 1024 * 1024;
 
 async function atomicWrite(filePath, value) {
   const temporary = `${filePath}.write-${process.pid}`;
@@ -23,18 +22,7 @@ async function atomicWrite(filePath, value) {
 
 async function main() {
   const config = loadConfig(process.env, { requireExecution: true });
-  if (!config.isLocal) throw new Error('metrics target is not loopback');
-  const response = await fetch(`${config.baseUrl}/metrics`, {
-    headers: { Accept: 'text/plain' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(5000),
-  });
-  if (response.status !== 200) throw new Error('metrics endpoint rejected');
-  const raw = await response.text();
-  if (Buffer.byteLength(raw) > MAX_METRICS_BYTES) {
-    throw new Error('metrics response is too large');
-  }
-  const snapshot = parsePrometheusSnapshot(raw);
+  const snapshot = await collectApplicationSnapshot(config);
   if (snapshot.series.length === 0) {
     throw new Error('metrics endpoint returned no required series');
   }

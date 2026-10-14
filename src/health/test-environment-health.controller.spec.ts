@@ -77,6 +77,9 @@ describe('TestEnvironmentHealthController', () => {
         traceSampleRatio: 0.1,
         minSpanDurationMs: 0,
       },
+      authentication: {
+        accessTokenTtlSeconds: 3600,
+      },
     });
   });
 

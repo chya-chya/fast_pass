@@ -16,7 +16,9 @@ function assertEqual(actual, expected, label) {
 
 async function main() {
   const config = loadConfig(process.env, { requireExecution: true });
-  if (!config.isLocal) throw new Error('preflight target is not loopback');
+  if (!config.isLocal && process.env.REMOTE_APPROVAL_VERIFIED !== 'true') {
+    throw new Error('remote approval is not verified');
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);

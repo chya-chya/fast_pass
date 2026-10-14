@@ -1,0 +1,95 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y docker jq
+systemctl enable --now docker amazon-ssm-agent
+
+aws ecr get-login-password --region '${aws_region}' | docker login --username AWS --password-stdin '${ecr_registry}'
+docker pull '${image_uri}'
+
+install -d -m 0700 /etc/fast-pass
+curl --fail --silent --show-error --location \
+  https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  --output /etc/fast-pass/aws-rds-global-bundle.pem
+test "$(wc -c </etc/fast-pass/aws-rds-global-bundle.pem)" -gt 1000
+chmod 0444 /etc/fast-pass/aws-rds-global-bundle.pem
+secret_json="$(aws ssm get-parameter --region '${aws_region}' --name '${parameter_name}' --with-decryption --query Parameter.Value --output text)"
+db_user="$(jq -r '.database_username' <<<"$secret_json")"
+db_password="$(jq -r '.database_password | @uri' <<<"$secret_json")"
+jwt_secret="$(jq -r '.jwt_secret' <<<"$secret_json")"
+jwt_refresh_secret="$(jq -r '.jwt_refresh_secret' <<<"$secret_json")"
+preflight_token="$(jq -r '.test_preflight_token' <<<"$secret_json")"
+imds_token="$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token)"
+instance_id="$(curl -fsS -H "X-aws-ec2-metadata-token: $imds_token" http://169.254.169.254/latest/meta-data/instance-id)"
+
+cat > /etc/fast-pass/app.env <<EOF
+NODE_ENV=load-test
+PRODUCTION=false
+PORT=3000
+DATABASE_URL=postgresql://$db_user:$db_password@${database_host}:${database_port}/${database_name}?connection_limit=4&pool_timeout=5
+DB_SSL_MODE=require
+DB_SSL_REJECT_UNAUTHORIZED=true
+NODE_EXTRA_CA_CERTS=/etc/ssl/certs/aws-rds-global-bundle.pem
+DB_POOL_SIZE=4
+REDIS_HOST=${redis_host}
+REDIS_PORT=${redis_port}
+REDIS_CLUSTER_MODE=false
+REDIS_USE_TLS=true
+REDIS_TLS_VERIFY_HOSTNAME=true
+JWT_SECRET=$jwt_secret
+JWT_REFRESH_SECRET=$jwt_refresh_secret
+JWT_EXPIRES_IN=2h
+REFRESH_EXPIRES_DAYS=1
+APP_ID=fast_pass
+APP_BUILD_SHA=${app_build_sha}
+INSTANCE_ID=$instance_id
+TEST_ENVIRONMENT=remote-disposable
+TEST_ENV_ID=${environment_id}
+TEST_DATABASE_NAME=${database_name}
+TEST_REDIS_ID=${environment_id}
+REDIS_KEY_PREFIX=${redis_prefix}
+ENABLE_TEST_PREFLIGHT=true
+ALLOW_TEST_DATA_MUTATION=true
+TEST_PREFLIGHT_TOKEN=$preflight_token
+ENABLE_TRACING=false
+RESERVATION_METRICS_REFRESH_MS=5000
+PM2_APP_INSTANCES=${pm2_instances}
+WORKER_METRICS_ENABLED=true
+WORKER_METRICS_BASE_PORT=9300
+EOF
+chmod 0600 /etc/fast-pass/app.env
+unset secret_json db_user db_password jwt_secret jwt_refresh_secret preflight_token imds_token instance_id
+
+cat > /etc/fast-pass/ecosystem.infrastructure.config.cjs <<'EOF'
+module.exports = {
+  apps: [
+    {
+      name: 'fast_pass',
+      script: 'dist/src/main.js',
+      instances: ${pm2_instances},
+      exec_mode: 'cluster',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',
+    },
+    {
+      name: 'pm2-metrics-exporter',
+      script: 'dist/src/observability/pm2-metrics-exporter.js',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      env: {
+        METRICS_PORT: 9209,
+      },
+    },
+  ],
+};
+EOF
+chmod 0600 /etc/fast-pass/ecosystem.infrastructure.config.cjs
+
+if [[ '${run_migration}' == 'true' ]]; then
+  docker run --rm --env-file /etc/fast-pass/app.env -v /etc/fast-pass/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro '${image_uri}' npx prisma migrate deploy
+  docker run --rm --env-file /etc/fast-pass/app.env '${image_uri}' node -e "const Redis=require('ioredis');const r=new Redis({host:process.env.REDIS_HOST,port:Number(process.env.REDIS_PORT),tls:{servername:process.env.REDIS_HOST}});r.set(process.env.REDIS_KEY_PREFIX+'environment',JSON.stringify({testEnvId:process.env.TEST_ENV_ID,redisId:process.env.TEST_REDIS_ID,keyPrefix:process.env.REDIS_KEY_PREFIX})).then(()=>r.quit()).catch((error)=>{console.error(error.message);process.exit(1)})"
+fi
+docker rm -f fast-pass >/dev/null 2>&1 || true
+docker run -d --name fast-pass --restart unless-stopped --memory 1536m --env-file /etc/fast-pass/app.env -v /etc/fast-pass/ecosystem.infrastructure.config.cjs:/app/ecosystem.infrastructure.config.cjs:ro -v /etc/fast-pass/aws-rds-global-bundle.pem:/etc/ssl/certs/aws-rds-global-bundle.pem:ro -p 3000:3000 -p 9300-9301:9300-9301 -p 9209:9209 '${image_uri}' pm2-runtime start ecosystem.infrastructure.config.cjs

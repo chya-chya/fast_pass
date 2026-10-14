@@ -64,8 +64,21 @@ fi
 node k6/tools/artifact-state.mjs preflight
 node k6/tools/capture-app-metrics.mjs
 
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' && "${SCENARIO}" =~ ^(spike|soak)$ && "${FIXTURE_SEED_MODE:-chunked-bulk}" == 'chunked-bulk' ]]; then
+  node k6/tools/fixture-provision.mjs --execute
+fi
+
+watchdog_enabled=0
+if [[ "${SCENARIO}" =~ ^(spike|soak)$ ]] || [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' ]]; then
+  watchdog_enabled=1
+fi
+
+if [[ ${watchdog_enabled} -eq 1 ]]; then
+  node k6/tools/watchdog.mjs --preflight
+fi
+
 watchdog_status=0
-if [[ "${SCENARIO}" =~ ^(spike|soak)$ ]]; then
+if [[ ${watchdog_enabled} -eq 1 ]]; then
   set +e
   K6_NO_USAGE_REPORT=true k6 run "${scenario_script}" &
   k6_pid=$!
@@ -87,7 +100,11 @@ else
 fi
 
 set +e
-K6_EXIT_STATUS="${k6_status}" node k6/tools/audit.mjs
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' && "${FIXTURE_SEED_MODE:-}" == 'chunked-bulk' ]]; then
+  K6_EXIT_STATUS="${k6_status}" node k6/tools/remote-audit.mjs
+else
+  K6_EXIT_STATUS="${k6_status}" node k6/tools/audit.mjs
+fi
 audit_status=$?
 set -e
 
@@ -122,6 +139,18 @@ else
   execution='COMPLETED'
   reason='NONE'
   final_status=0
+fi
+
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' ]]; then
+  set +e
+  node k6/tools/artifact-upload.mjs raw
+  raw_upload_status=$?
+  set -e
+  if [[ ${raw_upload_status} -ne 0 ]]; then
+    execution='FAILED'
+    reason='ARTIFACT_UPLOAD_FAILED'
+    final_status=${raw_upload_status}
+  fi
 fi
 
 if ! node k6/tools/artifact-state.mjs finalize "${execution}" "${reason}"; then

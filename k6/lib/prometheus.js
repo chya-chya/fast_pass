@@ -20,6 +20,12 @@ export const APP_METRIC_NAMES = Object.freeze([
   'nodejs_eventloop_lag_seconds',
 ]);
 
+export const PM2_METRIC_NAMES = Object.freeze([
+  'pm2_up',
+  'pm2_restarts',
+  'pm2_scrape_up',
+]);
+
 const HISTOGRAM_NAMES = new Set([
   'reservation_persistence_latency_seconds',
   'reservation_scheduler_batch_size',
@@ -41,7 +47,9 @@ function parseLabels(raw) {
 }
 
 function selectedMetric(name) {
-  if (APP_METRIC_NAMES.includes(name)) return true;
+  if (APP_METRIC_NAMES.includes(name) || PM2_METRIC_NAMES.includes(name)) {
+    return true;
+  }
   for (const histogram of HISTOGRAM_NAMES) {
     if (
       name === `${histogram}_bucket` ||

@@ -81,8 +81,12 @@ model Reservation {
   status     ReservationStatus @default(PENDING)
   reservedAt DateTime          @default(now())
   paidAt     DateTime?
+  testRunId     String?
+  testRequestId String?
 
   @@index([userId]) // 사용자의 마이페이지 조회 성능 향상
+  @@index([testRunId])
+  @@unique([testRunId, testRequestId])
 }
 
 enum SeatStatus {

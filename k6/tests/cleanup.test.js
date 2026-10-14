@@ -69,3 +69,24 @@ test('rejects duplicate or unsafe IDs before any deletion is possible', () => {
     /unsafe ID/,
   );
 });
+
+test('builds a wildcard-free deterministic range cleanup for remote runs', () => {
+  const remoteConfig = {
+    ...config(),
+    testEnvironment: 'remote-disposable',
+    userCount: 1_000_000,
+    seatCount: 1_000_000,
+  };
+  const plan = buildCleanupPlan(remoteConfig, {
+    schemaVersion: 2,
+    runId: remoteConfig.runId,
+    testEnvId: remoteConfig.testEnvId,
+    eventId: 'cleanup-run-event',
+    performanceId: 'cleanup-run-performance',
+    userRange: { kind: 'deterministic-v1', start: 0, count: 1_000_000 },
+    seatRange: { kind: 'deterministic-v1', start: 0, count: 1_000_000 },
+  });
+  assert.equal(plan.database.userRange.count, 1_000_000);
+  assert.equal(plan.database.reservationOwnership.value, remoteConfig.runId);
+  assert.equal(JSON.stringify(plan).includes('*'), false);
+});

@@ -1,0 +1,477 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fast-pass.invalid/schemas/remote-approval-v1.json",
+  "title": "FastPass phase 12 remote load-test approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "approvalId",
+    "approvedBy",
+    "responsibility",
+    "environment",
+    "window",
+    "mode",
+    "images",
+    "infrastructure",
+    "limits",
+    "execution",
+    "abort",
+    "cleanup",
+    "retention",
+    "gates",
+    "scenarios"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "approvalId": { "$ref": "#/definitions/safeId" },
+    "approvedBy": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "responsibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["costOwner", "incidentOwner"],
+      "properties": {
+        "costOwner": { "type": "string", "minLength": 3, "maxLength": 128 },
+        "incidentOwner": { "type": "string", "minLength": 3, "maxLength": 128 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "classification",
+        "production",
+        "baseUrl",
+        "awsAccountId",
+        "region",
+        "artifactBucket",
+        "approvalBucket",
+        "approvalKey",
+        "targetGroupArn",
+        "appInstanceIds",
+        "loadGeneratorInstanceId",
+        "databaseIdentifier",
+        "databaseName",
+        "redisReplicationGroupId",
+        "applicationParameterName",
+        "expectedMigrationId"
+      ],
+      "properties": {
+        "id": { "$ref": "#/definitions/safeId" },
+        "classification": { "const": "remote-disposable" },
+        "production": { "const": false },
+        "baseUrl": { "type": "string", "pattern": "^http://[A-Za-z0-9.-]+$" },
+        "awsAccountId": { "type": "string", "pattern": "^[0-9]{12}$" },
+        "region": { "const": "ap-northeast-2" },
+        "artifactBucket": { "$ref": "#/definitions/bucket" },
+        "approvalBucket": { "$ref": "#/definitions/bucket" },
+        "approvalKey": {
+          "type": "string",
+          "pattern": "^approvals/[A-Za-z0-9._/-]+\\.json$",
+          "maxLength": 512
+        },
+        "targetGroupArn": {
+          "type": "string",
+          "pattern": "^arn:aws:elasticloadbalancing:ap-northeast-2:[0-9]{12}:targetgroup/"
+        },
+        "appInstanceIds": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^i-[0-9a-f]+$" }
+        },
+        "loadGeneratorInstanceId": {
+          "type": "string",
+          "pattern": "^i-[0-9a-f]+$"
+        },
+        "databaseIdentifier": { "$ref": "#/definitions/safeId" },
+        "databaseName": {
+          "type": "string",
+          "pattern": "^fast_pass_k6_[a-z0-9_]{3,48}$"
+        },
+        "redisReplicationGroupId": { "$ref": "#/definitions/safeId" },
+        "applicationParameterName": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._/-]{3,255}$"
+        },
+        "expectedMigrationId": {
+          "type": "string",
+          "pattern": "^[0-9]{14}(?:_[A-Za-z0-9_-]{1,64})?$"
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startsAt", "endsAt"],
+      "properties": {
+        "startsAt": { "type": "string", "format": "date-time" },
+        "endsAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["comparison", "candidate-only"] },
+        "baselineAbsenceReason": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 1000
+        },
+        "baselineAbsenceEvidence": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 1000
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "runner"],
+      "properties": {
+        "baseline": { "$ref": "#/definitions/image" },
+        "candidate": { "$ref": "#/definitions/image" },
+        "runner": { "$ref": "#/definitions/image" }
+      }
+    },
+    "infrastructure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "appInstanceType",
+        "appInstanceCount",
+        "pm2WorkersPerInstance",
+        "databaseClass",
+        "redisNodeType",
+        "generatorInstanceType",
+        "albScheme",
+        "databasePoolPerWorker"
+      ],
+      "properties": {
+        "appInstanceType": { "const": "t3.small" },
+        "appInstanceCount": { "const": 7 },
+        "pm2WorkersPerInstance": { "const": 2 },
+        "databaseClass": { "const": "db.t4g.micro" },
+        "redisNodeType": { "const": "cache.t3.micro" },
+        "generatorInstanceType": { "const": "c7i-flex.large" },
+        "albScheme": { "const": "internal" },
+        "databasePoolPerWorker": { "const": 4 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxVus",
+        "maxRps",
+        "maxDurationSeconds",
+        "maxRequests",
+        "maxFixtureUsers",
+        "maxFixtureSeats",
+        "maxFixtureDatabaseRows",
+        "maxFixtureDatabaseBytes",
+        "maxFixtureRedisBytes"
+      ],
+      "properties": {
+        "maxVus": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "maxRps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "maxDurationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "maxRequests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000000
+        },
+        "maxFixtureUsers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "maxFixtureSeats": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000000
+        },
+        "maxFixtureDatabaseRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000000
+        },
+        "maxFixtureDatabaseBytes": { "type": "integer", "minimum": 1 },
+        "maxFixtureRedisBytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "smokeVus",
+        "smokeDurationSeconds",
+        "consistencyVus",
+        "consistencySeats",
+        "capacityVuStages",
+        "capacityVuRampSeconds",
+        "capacityVuHoldSeconds",
+        "capacityVuThinkSeconds",
+        "capacityVuRequestBudget",
+        "rpsExploreStages",
+        "rpsRampSeconds",
+        "rpsHoldSeconds",
+        "rpsConfirmationSeconds",
+        "rpsRequestBudget",
+        "stableRps",
+        "preAllocatedVus",
+        "maxVus",
+        "allowOverload110",
+        "spikeBaselineRps",
+        "spikePeakRps",
+        "spikeBaselineSeconds",
+        "spikePeakSeconds",
+        "spikeRecoverySeconds",
+        "soakRatePercent",
+        "soakDurationSeconds"
+      ],
+      "properties": {
+        "smokeVus": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "smokeDurationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "consistencyVus": { "type": "integer", "minimum": 2, "maximum": 1000 },
+        "consistencySeats": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "capacityVuStages": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 10000 }
+        },
+        "capacityVuRampSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "capacityVuHoldSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "capacityVuThinkSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "capacityVuRequestBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25000
+        },
+        "rpsExploreStages": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 10000 }
+        },
+        "rpsRampSeconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "rpsHoldSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "rpsConfirmationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "rpsRequestBudget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25000
+        },
+        "stableRps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "preAllocatedVus": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "maxVus": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "allowOverload110": { "type": "boolean" },
+        "spikeBaselineRps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "spikePeakRps": { "type": "integer", "minimum": 2, "maximum": 10000 },
+        "spikeBaselineSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "spikePeakSeconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "spikeRecoverySeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "soakRatePercent": { "type": "integer", "minimum": 60, "maximum": 70 },
+        "soakDurationSeconds": {
+          "type": "integer",
+          "minimum": 3600,
+          "maximum": 86400
+        }
+      }
+    },
+    "abort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consecutiveSamples",
+        "unexpectedErrorRate",
+        "databaseConnectionRatio",
+        "databaseCpuPercent",
+        "redisCpuPercent",
+        "redisMemoryPercent",
+        "eventLoopLagMs",
+        "queueDepth",
+        "generatorCpuPercent",
+        "minimumCpuCreditBalance",
+        "redisEvictions",
+        "unhealthyTargets",
+        "processRestarts"
+      ],
+      "properties": {
+        "consecutiveSamples": { "const": 3 },
+        "unexpectedErrorRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "databaseConnectionRatio": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.85
+        },
+        "databaseCpuPercent": { "type": "number", "minimum": 1, "maximum": 95 },
+        "redisCpuPercent": { "type": "number", "minimum": 1, "maximum": 95 },
+        "redisMemoryPercent": { "type": "number", "minimum": 1, "maximum": 95 },
+        "eventLoopLagMs": { "type": "number", "minimum": 1, "maximum": 200 },
+        "queueDepth": { "type": "integer", "minimum": 1 },
+        "generatorCpuPercent": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "minimumCpuCreditBalance": { "type": "number", "minimum": 0 },
+        "redisEvictions": { "const": 0 },
+        "unhealthyTargets": { "const": 0 },
+        "processRestarts": { "const": 0 }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorized"],
+      "properties": { "authorized": { "const": true } }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summaries", "rawTimeseriesDays"],
+      "properties": {
+        "summaries": { "const": "permanent" },
+        "rawTimeseriesDays": { "const": 90 }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase3", "phase4", "phase7", "phase11", "noGo"],
+      "properties": {
+        "phase3": { "const": "INTEGRATION_VERIFIED" },
+        "phase4": { "const": "INTEGRATION_VERIFIED" },
+        "phase7": { "const": "INTEGRATION_VERIFIED" },
+        "phase11": { "const": "INTEGRATION_VERIFIED" },
+        "noGo": { "const": false }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "smoke",
+          "consistency-inventory",
+          "capacity-vu",
+          "capacity-rps",
+          "spike",
+          "soak"
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "type": "object",
+            "properties": { "kind": { "const": "comparison" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "images": {
+            "type": "object",
+            "properties": { "baseline": { "$ref": "#/definitions/image" } },
+            "required": ["baseline"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "type": "object",
+            "properties": { "kind": { "const": "candidate-only" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mode": {
+            "type": "object",
+            "properties": {
+              "baselineAbsenceReason": { "type": "string" },
+              "baselineAbsenceEvidence": { "type": "string" }
+            },
+            "required": ["baselineAbsenceReason", "baselineAbsenceEvidence"]
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$"
+    },
+    "bucket": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gitSha", "digest"],
+      "properties": {
+        "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

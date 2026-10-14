@@ -48,7 +48,7 @@ test('rejects unsafe identifiers and invalid numeric input', () => {
   );
 });
 
-test('rejects a remote target even when remote flags are present', () => {
+test('requires a cryptographically verified approval for a remote target', () => {
   assert.throws(
     () =>
       loadConfig(
@@ -59,8 +59,24 @@ test('rejects a remote target even when remote flags are present', () => {
         }),
         { requireExecution: true },
       ),
-    /remote execution is disabled/,
+    /REMOTE_APPROVAL_VERIFIED=true/,
   );
+});
+
+test('accepts a verified remote disposable target', () => {
+  const config = loadConfig(
+    validEnvironment({
+      BASE_URL: 'http://internal-fast-pass.ap-northeast-2.elb.amazonaws.com',
+      ALLOW_REMOTE_LOAD: 'true',
+      REMOTE_APPROVAL_MANIFEST: 'approval.json',
+      REMOTE_APPROVAL_VERIFIED: 'true',
+      TEST_ENVIRONMENT: 'remote-disposable',
+      EXPECTED_DB_TLS_MODE: 'require',
+      EXPECTED_REDIS_TLS_MODE: 'require',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.isLocal, false);
 });
 
 test('rejects malformed loopback addresses and production-like identities', () => {

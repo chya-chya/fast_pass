@@ -15,6 +15,7 @@ import {
 } from './api.js';
 import { CAPACITY_ASSIGNMENTS, capacityAssignmentFor } from './capacity.js';
 import { requestIdFor } from './consistency.js';
+import { fixtureEmail, fixtureId, rangeAssignment } from './fixture-range.js';
 import {
   recordLongRunRequestStarted,
   recordLongRunResponseCompleted,
@@ -33,10 +34,34 @@ function randomText(length) {
 }
 
 export function setupLongRun(config, env) {
-  if (config.fixtureSeedMode !== 'api-array') {
-    throw new Error(
-      'chunked-bulk fixture provisioning must complete before an approved remote run',
-    );
+  if (config.fixtureSeedMode === 'chunked-bulk') {
+    if (config.isLocal || !env.FIXTURE_USER_PASSWORD) {
+      throw new Error('approved remote fixture credentials are required');
+    }
+    const tokens = [];
+    for (let index = 0; index < config.userCount; index += 1) {
+      const loginBody = parseRequiredObject(
+        login(
+          config.baseUrl,
+          {
+            email: fixtureEmail(config.runId, index),
+            password: env.FIXTURE_USER_PASSWORD,
+          },
+          `${config.scenario}_setup`,
+        ),
+        200,
+        ['accessToken'],
+        'long-run fixture login',
+      );
+      tokens.push(loginBody.accessToken);
+    }
+    return {
+      tokens,
+      userCount: config.userCount,
+      seatCount: config.seatCount,
+      performanceId: fixtureId(config.runId, 'performance'),
+      fixtureMode: 'deterministic-range',
+    };
   }
   const tokens = [];
   const userIds = [];
@@ -161,13 +186,16 @@ export function executeLongRunIteration(
       'long-run request budget exhausted; increase LOAD_REQUEST_BUDGET',
     );
   }
-  const assignment = capacityAssignmentFor(
-    iteration,
-    data.userIds,
-    data.seatIds,
-    'unique-seat',
-    config.loadRequestBudget,
-  );
+  const assignment =
+    data.fixtureMode === 'deterministic-range'
+      ? rangeAssignment(iteration, config.runId, data.userCount, data.seatCount)
+      : capacityAssignmentFor(
+          iteration,
+          data.userIds,
+          data.seatIds,
+          'unique-seat',
+          config.loadRequestBudget,
+        );
   const requestId = requestIdFor(config.runId, iteration);
   const tags = { scenario: config.scenario, load_phase: phase };
   const windowIndex =

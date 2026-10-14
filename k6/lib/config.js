@@ -251,9 +251,11 @@ function parseBaseUrl(rawValue, env, errors) {
     if (!env.REMOTE_APPROVAL_MANIFEST) {
       errors.push('REMOTE_APPROVAL_MANIFEST is required for a remote target');
     }
-    errors.push(
-      'remote execution is disabled until the phase 12 approval manifest verifier is implemented',
-    );
+    if (env.REMOTE_APPROVAL_VERIFIED !== 'true') {
+      errors.push(
+        'REMOTE_APPROVAL_VERIFIED=true is required for a remote target',
+      );
+    }
   }
 
   return {
@@ -825,7 +827,8 @@ export function loadConfig(
       loadAuditAllowance.milliseconds +
       loadTokenSafety.milliseconds
     : 0;
-  const watchdogPollIntervalMs = longRunScenario
+  const watchdogRequired = longRunScenario || !target.isLocal;
+  const watchdogPollIntervalMs = watchdogRequired
     ? parseInteger(
         'WATCHDOG_POLL_INTERVAL_MS',
         env.WATCHDOG_POLL_INTERVAL_MS,
@@ -835,7 +838,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogConsecutiveViolations = longRunScenario
+  const watchdogConsecutiveViolations = watchdogRequired
     ? parseInteger(
         'WATCHDOG_CONSECUTIVE_VIOLATIONS',
         env.WATCHDOG_CONSECUTIVE_VIOLATIONS,
@@ -845,7 +848,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogMaxUnexpectedErrorRate = longRunScenario
+  const watchdogMaxUnexpectedErrorRate = watchdogRequired
     ? parseNumber(
         'WATCHDOG_MAX_UNEXPECTED_ERROR_RATE',
         env.WATCHDOG_MAX_UNEXPECTED_ERROR_RATE,
@@ -855,7 +858,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogMaxDatabaseConnectionRatio = longRunScenario
+  const watchdogMaxDatabaseConnectionRatio = watchdogRequired
     ? parseNumber(
         'WATCHDOG_MAX_DATABASE_CONNECTION_RATIO',
         env.WATCHDOG_MAX_DATABASE_CONNECTION_RATIO,
@@ -865,7 +868,37 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogMaxEventLoopLagMs = longRunScenario
+  const watchdogMaxDatabaseCpuPercent = watchdogRequired
+    ? parseNumber(
+        'WATCHDOG_MAX_DATABASE_CPU_PERCENT',
+        env.WATCHDOG_MAX_DATABASE_CPU_PERCENT,
+        90,
+        1,
+        100,
+        errors,
+      )
+    : 0;
+  const watchdogMaxRedisCpuPercent = watchdogRequired
+    ? parseNumber(
+        'WATCHDOG_MAX_REDIS_CPU_PERCENT',
+        env.WATCHDOG_MAX_REDIS_CPU_PERCENT,
+        90,
+        1,
+        100,
+        errors,
+      )
+    : 0;
+  const watchdogMaxRedisMemoryPercent = watchdogRequired
+    ? parseNumber(
+        'WATCHDOG_MAX_REDIS_MEMORY_PERCENT',
+        env.WATCHDOG_MAX_REDIS_MEMORY_PERCENT,
+        90,
+        1,
+        100,
+        errors,
+      )
+    : 0;
+  const watchdogMaxEventLoopLagMs = watchdogRequired
     ? parseInteger(
         'WATCHDOG_MAX_EVENT_LOOP_LAG_MS',
         env.WATCHDOG_MAX_EVENT_LOOP_LAG_MS,
@@ -875,7 +908,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogMaxGeneratorCpuPercent = longRunScenario
+  const watchdogMaxGeneratorCpuPercent = watchdogRequired
     ? parseNumber(
         'WATCHDOG_MAX_GENERATOR_CPU_PERCENT',
         env.WATCHDOG_MAX_GENERATOR_CPU_PERCENT,
@@ -885,13 +918,23 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const watchdogMaxQueueDepth = longRunScenario
+  const watchdogMaxQueueDepth = watchdogRequired
     ? parseInteger(
         'WATCHDOG_MAX_QUEUE_DEPTH',
         env.WATCHDOG_MAX_QUEUE_DEPTH,
         10000,
         0,
         100000000,
+        errors,
+      )
+    : 0;
+  const watchdogMinCpuCreditBalance = watchdogRequired
+    ? parseNumber(
+        'WATCHDOG_MIN_CPU_CREDIT_BALANCE',
+        env.WATCHDOG_MIN_CPU_CREDIT_BALANCE,
+        10,
+        0,
+        1000,
         errors,
       )
     : 0;
@@ -1201,8 +1244,11 @@ export function loadConfig(
     validateSafeIdentifier('RUN_ID', runId, errors);
     validateSafeIdentifier('TEST_ENV_ID', testEnvId, errors);
     validateSafeIdentifier('TEST_REDIS_ID', testRedisId, errors);
-    if (env.TEST_ENVIRONMENT !== 'local-disposable') {
-      errors.push('TEST_ENVIRONMENT must be local-disposable');
+    const requiredTestEnvironment = target.isLocal
+      ? 'local-disposable'
+      : 'remote-disposable';
+    if (env.TEST_ENVIRONMENT !== requiredTestEnvironment) {
+      errors.push(`TEST_ENVIRONMENT must be ${requiredTestEnvironment}`);
     }
     if (
       [env.TEST_ENVIRONMENT, testEnvId, testDatabaseName, testRedisId].some(
@@ -1382,9 +1428,13 @@ export function loadConfig(
     watchdogConsecutiveViolations,
     watchdogMaxUnexpectedErrorRate,
     watchdogMaxDatabaseConnectionRatio,
+    watchdogMaxDatabaseCpuPercent,
+    watchdogMaxRedisCpuPercent,
+    watchdogMaxRedisMemoryPercent,
     watchdogMaxEventLoopLagMs,
     watchdogMaxGeneratorCpuPercent,
     watchdogMaxQueueDepth,
+    watchdogMinCpuCreditBalance,
     testEnvironment: env.TEST_ENVIRONMENT || '',
     testEnvId,
     testDatabaseName,
@@ -1490,9 +1540,13 @@ export function toPublicConfig(config) {
       consecutiveViolations: config.watchdogConsecutiveViolations,
       maxUnexpectedErrorRate: config.watchdogMaxUnexpectedErrorRate,
       maxDatabaseConnectionRatio: config.watchdogMaxDatabaseConnectionRatio,
+      maxDatabaseCpuPercent: config.watchdogMaxDatabaseCpuPercent,
+      maxRedisCpuPercent: config.watchdogMaxRedisCpuPercent,
+      maxRedisMemoryPercent: config.watchdogMaxRedisMemoryPercent,
       maxEventLoopLagMs: config.watchdogMaxEventLoopLagMs,
       maxGeneratorCpuPercent: config.watchdogMaxGeneratorCpuPercent,
       maxQueueDepth: config.watchdogMaxQueueDepth,
+      minCpuCreditBalance: config.watchdogMinCpuCreditBalance,
     },
     testEnvironment: config.testEnvironment,
     testEnvId: config.testEnvId,
@@ -1508,6 +1562,6 @@ export function toPublicConfig(config) {
     expectedTraceSampleRatio: config.expectedTraceSampleRatio,
     expectedMinSpanDurationMs: config.expectedMinSpanDurationMs,
     resultDir: config.resultDir,
-    remoteExecutionEnabled: false,
+    remoteExecutionEnabled: !config.isLocal,
   };
 }

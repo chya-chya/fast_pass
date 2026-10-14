@@ -65,3 +65,11 @@ k6/results/**/raw-*
 k6/results/**/*.ndjson
 k6/results/**/*.csv
 k6/results/**/.*
+
+# Remote approval and Terraform runtime state
+k6/remote/remote-approval.json
+k6/remote/remote-approval.local*.json
+k6/remote/node_modules/
+infra/load-test/terraform.tfvars
+infra/load-test/*.tfplan
+infra/load-test/*.tfstate*

@@ -174,3 +174,26 @@ k6/tools/run-local-integration.sh soak
 7. DB/Redis/queue 잔존량 0과 타 run 보존을 확인하고 비용 자원을 종료한다.
 
 정적 inspect만 통과하면 `STATIC_VERIFIED`, 일회성 앱·DB·Redis에서 축소 실행의 watchdog·drain·ID 감사까지 통과한 경우에만 11단계를 `INTEGRATION_VERIFIED`로 기록한다. 원격 profile을 실제 실행하기 전에는 `REMOTE_VERIFIED`를 사용하지 않는다.
+
+## 12단계 원격 실행
+
+원격 실행은 [AWS 부하 테스트 환경 README](../../infra/load-test/README.md)의 승인된 `k6/run-remote` 경로만 사용한다. 맥북에서는 S3의 버전 고정 승인 파일을 검증하고 SSM 명령만 전달하며, 실제 k6와 감사·cleanup은 VPC 내부 `c7i-flex.large` 발생기에서 수행한다. 원래 계획의 `c7i.large`는 이 계정의 프리 티어 제한으로 AWS가 거부하므로 같은 2 vCPU·4 GiB 사양의 허용 유형으로 교체했다.
+
+실행 준비 순서는 `k6/manage-remote-generator start --execute`로 임시 발생기를 만든 뒤, `k6/prepare-remote-approval`로 실사값이 채워진 초안을 생성하고 승인자가 검토한 파일만 `k6/publish-remote-approval --publish`로 게시하는 것이다. 발생기 ID가 승인서에 고정되므로 이 순서를 바꾸면 안 된다. 정식 실행은 `k6/execute-remote-session ... --execute`를 사용해 종료 시 Terraform 발생기 삭제까지 시도한다. 발생기에는 26시간 자기 종료 안전장치가 있지만 정상 cleanup을 생략할 근거로 사용하지 않는다.
+
+승인 파일은 [JSON Schema](../../k6/remote/remote-approval.schema.json)를 만족해야 한다. 환경·시간창·시나리오·정확한 실행 profile·fixture 상한·기준선/후보/runner digest·인프라·담당자·중단 기준·cleanup 권한을 누락할 수 없다. runner는 승인 파일을 만들거나 수정하지 않으며 approval ID, S3 Version ID, SHA-256과 `--execute` 중 하나라도 없으면 실행하지 않는다.
+
+`validate`는 다음을 실행 없이 확인하고 Run 행렬만 출력한다.
+
+1. 승인 schema, checksum, S3 버전과 활성 시간창
+2. 3·4·7·11단계 `INTEGRATION_VERIFIED`와 `NO_GO=false`
+3. AWS 계정·서울 리전, internal ALB, healthy target 7개
+4. `t3.small` 7대, `c7i-flex.large` 발생기, `db.t4g.micro`, `cache.t3.micro`
+5. S3 버전 관리·암호화·공개 차단과 원본 시계열 90일 보존
+6. VU/RPS·기간·요청 수·fixture 행/바이트·토큰 TTL 상한
+
+`execute`는 이미지 digest별로 대표 노드 migration 1회와 7대 순차 배포를 완료하고 모든 ALB target이 healthy이며 동일 SHA/digest 태그인지 확인한 뒤 실행한다. 각 Run 직전 승인 파일과 AWS 실사값을 다시 읽고, 14개 worker·7개 PM2 exporter·DB·Redis·ALB·CloudWatch·발생기 CPU의 watchdog preflight를 통과해야 k6를 시작한다.
+
+각 Run은 `producer 종료 → drain → ID 감사 → cleanup dry-run → exact cleanup → 외부 Run 보존 확인 → S3 업로드 → checksum 봉인` 순서를 완료해야 한다. 어느 단계든 실패하면 다음 Run으로 올라가지 않는다. 실패하거나 중단된 Run도 가능한 metadata와 산출물을 보존하며 성공으로 바꾸지 않는다.
+
+기준선과 후보 비교는 같은 runner digest, 인프라 descriptor hash, profile hash, fixture 방식, cache/tracing 설정으로 실행된 100% 확정 Run 3회에만 허용한다. `candidate-only` 승인은 후보 절대값만 보고하며 개선율을 작성하지 않는다. 실제 AWS 실행을 하지 않은 코드·Terraform 검증 상태는 `STATIC_VERIFIED`이며 `REMOTE_VERIFIED`가 아니다.

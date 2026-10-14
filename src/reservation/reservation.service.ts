@@ -474,7 +474,7 @@ export class ReservationService {
       }
 
       data = this.parseQueueData(message);
-      const { userId, seatId, id, reservedAt } = data;
+      const { userId, seatId, id, reservedAt, runId, requestId } = data;
       await this.testRunTracker.markProcessingStarted(message, data);
       const stopClaimHeartbeat =
         this.testRunTracker.startClaimHeartbeat(message);
@@ -531,6 +531,8 @@ export class ReservationService {
               seatId,
               status: 'PENDING',
               reservedAt: new Date(reservedAt), // Preserve timestamp
+              testRunId: runId,
+              testRequestId: requestId,
             },
           });
 
@@ -649,13 +651,21 @@ export class ReservationService {
   }
 
   private matchesQueueData(
-    existing: { userId: string; seatId: string; reservedAt: Date },
+    existing: {
+      userId: string;
+      seatId: string;
+      reservedAt: Date;
+      testRunId?: string | null;
+      testRequestId?: string | null;
+    },
     data: ReservationQueueData,
   ): boolean {
     return (
       existing.userId === data.userId &&
       existing.seatId === data.seatId &&
-      existing.reservedAt.getTime() === new Date(data.reservedAt).getTime()
+      existing.reservedAt.getTime() === new Date(data.reservedAt).getTime() &&
+      (existing.testRunId ?? undefined) === data.runId &&
+      (existing.testRequestId ?? undefined) === data.requestId
     );
   }
 

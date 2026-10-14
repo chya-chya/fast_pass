@@ -7,7 +7,10 @@ import {
   Header,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertTestEnvironmentAccess } from './test-environment-access';
+import {
+  assertTestEnvironmentAccess,
+  isDisposableTestEnvironment,
+} from './test-environment-access';
 import { readTracingConfig } from '../observability/tracing-config';
 import { readAccessTokenTtlSeconds } from '../auth/access-token-ttl';
 
@@ -79,7 +82,7 @@ export class TestEnvironmentHealthController {
     const normalizedEnvId = testEnvId.toLowerCase().replace(/[.-]/g, '_');
 
     if (
-      process.env.TEST_ENVIRONMENT !== 'local-disposable' ||
+      !isDisposableTestEnvironment() ||
       process.env.ALLOW_TEST_DATA_MUTATION !== 'true' ||
       !SAFE_ID_PATTERN.test(appId) ||
       !SAFE_ID_PATTERN.test(testEnvId) ||

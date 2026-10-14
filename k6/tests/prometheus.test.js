@@ -62,3 +62,19 @@ test('detects counter resets instead of reporting a negative delta', () => {
   assert.equal(result.counters.requests, null);
   assert.equal(result.counterResetDetected, true);
 });
+
+test('preserves the PM2 inventory metrics required by the remote watchdog', () => {
+  const result = parsePrometheusSnapshot(
+    [
+      'pm2_scrape_up 1',
+      'pm2_up{name="fast_pass",instance="app-01",pm_id="0",pid="101"} 1',
+      'pm2_restarts{name="fast_pass",instance="app-01",pm_id="0",pid="101"} 2',
+      'unapproved_metric 999',
+    ].join('\n'),
+  );
+
+  assert.deepEqual(
+    result.series.map((series) => series.name),
+    ['pm2_scrape_up', 'pm2_up', 'pm2_restarts'],
+  );
+});

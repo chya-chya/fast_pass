@@ -23,9 +23,9 @@ import {
 import { longRunIterationIndices } from '../lib/endurance.js';
 import {
   APP_METRIC_NAMES,
-  parsePrometheusSnapshot,
   summarizePrometheusWindow,
 } from '../lib/prometheus.js';
+import { collectApplicationSnapshot } from './metrics-source.mjs';
 
 const { Pool } = pg;
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +33,6 @@ const repositoryRoot = path.resolve(toolDirectory, '..', '..');
 const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
 const RESERVATION_DLQ_STREAM = '{queue:reservations}:dlq:v1';
 const RESERVATION_CONSUMER_GROUP = 'reservation-workers-v1';
-const MAX_METRICS_BYTES = 2 * 1024 * 1024;
 
 function integerEnvironment(name, fallback, minimum, maximum) {
   const raw = process.env[name] || String(fallback);
@@ -112,17 +111,7 @@ async function collectApplicationMetrics(config, resultDirectory) {
         'utf8',
       ),
     );
-    const response = await fetch(`${config.baseUrl}/metrics`, {
-      headers: { Accept: 'text/plain' },
-      redirect: 'error',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (response.status !== 200) throw new Error('metrics endpoint rejected');
-    const raw = await response.text();
-    if (Buffer.byteLength(raw) > MAX_METRICS_BYTES) {
-      throw new Error('metrics response is too large');
-    }
-    const end = parsePrometheusSnapshot(raw);
+    const end = await collectApplicationSnapshot(config);
     const summary = summarizePrometheusWindow(baseline, end);
     const valid =
       summary.missingMetrics.length === 0 &&
@@ -134,7 +123,9 @@ async function collectApplicationMetrics(config, resultDirectory) {
       reason: valid ? null : 'required application metrics are incomplete',
       valid,
       sourceUri: null,
-      sourceType: 'direct_metrics_window_snapshot',
+      sourceType: config.isLocal
+        ? 'direct_metrics_window_snapshot'
+        : 'fourteen_worker_metrics_window_snapshot',
       rawQueries: [
         {
           endpointPath: '/metrics',
@@ -252,14 +243,20 @@ async function main() {
     throw new Error('audit database connection is invalid');
   }
   if (
-    !isLoopbackHostname(parsedDatabaseUrl.hostname) ||
     parsedDatabaseUrl.pathname.slice(1) !== config.testDatabaseName ||
-    !isLoopbackHostname(redisHost) ||
     !Number.isInteger(redisPort) ||
     redisPort < 1 ||
     redisPort > 65535
   ) {
     throw new Error('audit target identity is invalid');
+  }
+  if (
+    config.isLocal !==
+      (isLoopbackHostname(parsedDatabaseUrl.hostname) &&
+        isLoopbackHostname(redisHost)) ||
+    (!config.isLocal && process.env.REMOTE_APPROVAL_VERIFIED !== 'true')
+  ) {
+    throw new Error('audit network boundary does not match approval mode');
   }
 
   const resultDirectory = path.resolve(repositoryRoot, config.resultDir);
@@ -582,7 +579,8 @@ async function main() {
        FROM pg_stat_database WHERE datname = current_database()`,
     );
     let watchdog = null;
-    if (longRunScenario) {
+    const watchdogRequired = longRunScenario || !config.isLocal;
+    if (watchdogRequired) {
       watchdog = JSON.parse(
         await readFile(
           path.join(resultDirectory, '.watchdog.json.tmp'),
@@ -590,7 +588,7 @@ async function main() {
         ),
       );
       if (
-        watchdog.schemaVersion !== 1 ||
+        ![1, 2].includes(watchdog.schemaVersion) ||
         watchdog.runId !== config.runId ||
         watchdog.scenario !== config.scenario ||
         watchdog.status === 'RUNNING' ||
@@ -598,6 +596,15 @@ async function main() {
         watchdog.sampleCount < 1
       ) {
         throw new Error('watchdog artifact is invalid');
+      }
+      if (watchdog.status !== 'COMPLETED') {
+        audit.consistency.pass = false;
+        audit.consistency.reasons = [
+          ...new Set([
+            ...audit.consistency.reasons,
+            watchdog.abortReason || 'WATCHDOG_INCOMPLETE',
+          ]),
+        ];
       }
     }
     const appMetrics = await collectApplicationMetrics(config, resultDirectory);
@@ -777,6 +784,9 @@ async function main() {
               }
             : null,
       watchdog,
+      rawTimeseries: !config.isLocal
+        ? { status: 'pending-upload' }
+        : { status: 'not-collected' },
       database: {
         status: 'available',
         reason: null,
