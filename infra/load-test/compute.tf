@@ -115,7 +115,14 @@ resource "aws_instance" "app" {
   lifecycle {
     # Application releases are performed by the SSM deployment document.
     # A digest change must not replace the seven load-test hosts.
-    ignore_changes = [ami, user_data]
+    # Release identity tags are updated only after SSM verifies the rollout;
+    # Terraform must not claim a new release before the containers change.
+    ignore_changes = [
+      ami,
+      user_data,
+      tags["FastPassImageDigest"],
+      tags["FastPassBuildSha"],
+    ]
   }
 }
 
