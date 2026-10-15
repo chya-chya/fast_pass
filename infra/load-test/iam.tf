@@ -80,6 +80,20 @@ data "aws_iam_policy_document" "load_generator" {
     resources = [aws_ecr_repository.runner.arn]
   }
 
+  dynamic "statement" {
+    for_each = var.enable_runner_image_build ? [1] : []
+    content {
+      sid = "BuildRunnerImage"
+      actions = [
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+      ]
+      resources = [aws_ecr_repository.runner.arn]
+    }
+  }
+
   statement {
     sid       = "EcrLogin"
     actions   = ["ecr:GetAuthorizationToken"]

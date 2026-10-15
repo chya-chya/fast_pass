@@ -93,6 +93,12 @@ variable "enable_load_generator" {
   default     = false
 }
 
+variable "enable_runner_image_build" {
+  description = "Temporarily allow the ephemeral generator role to push a runner image. Keep false during load tests."
+  type        = bool
+  default     = false
+}
+
 variable "runner_image_digest" {
   description = "Immutable digest for the k6 runner ECR image. Required when enable_load_generator is true."
   type        = string
