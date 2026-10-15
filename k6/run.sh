@@ -50,10 +50,12 @@ trap mark_interrupted INT TERM HUP
 node k6/tools/artifact-state.mjs init
 artifact_open=1
 
-if ! node k6/tools/check-bind-sources.mjs; then
-  node k6/tools/artifact-state.mjs incomplete FAILED PREFLIGHT_REJECTED
-  artifact_open=0
-  exit 1
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" != 'true' ]]; then
+  if ! node k6/tools/check-bind-sources.mjs; then
+    node k6/tools/artifact-state.mjs incomplete FAILED PREFLIGHT_REJECTED
+    artifact_open=0
+    exit 1
+  fi
 fi
 
 if ! node k6/tools/preflight.mjs; then

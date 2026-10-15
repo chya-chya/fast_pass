@@ -5,13 +5,22 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+export function parseAwsJson(stdout, options = {}) {
+  const body = stdout.trim();
+  if (!body) {
+    if (options.allowEmpty) return {};
+    throw new Error('AWS CLI returned an empty JSON response');
+  }
+  return JSON.parse(body);
+}
+
 export async function awsJson(region, args, options = {}) {
   const { stdout } = await execFileAsync(
     'aws',
     ['--region', region, ...args, '--output', 'json', '--no-cli-pager'],
     { timeout: options.timeout || 30_000, maxBuffer: 8 * 1024 * 1024 },
   );
-  return JSON.parse(stdout);
+  return parseAwsJson(stdout, options);
 }
 
 function sameSet(left, right) {

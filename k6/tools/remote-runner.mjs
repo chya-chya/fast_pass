@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { fetchVersionedRemoteApproval } from './remote-approval-s3.mjs';
 import { verifyLocalGates } from './remote-gates.mjs';
@@ -60,7 +60,7 @@ function parseArguments(argv) {
   };
 }
 
-function documentPrefix(approval) {
+export function documentPrefix(approval) {
   const parts = approval.environment.applicationParameterName
     .split('/')
     .filter(Boolean);
@@ -69,7 +69,7 @@ function documentPrefix(approval) {
       'application parameter name cannot identify the Terraform environment',
     );
   }
-  return `${parts[0]}-${parts[1]}`;
+  return parts[0];
 }
 
 async function sendCommand(
@@ -130,6 +130,13 @@ async function waitForCommand(region, commandId, instanceId, timeoutMs) {
 
 async function deployImage(approval, image, documentName) {
   const { region, appInstanceIds } = approval.environment;
+  try {
+    return await inspectRemoteInfrastructure(approval, image);
+  } catch (error) {
+    if (!/deployed application identity does not match approval/.test(error.message)) {
+      throw error;
+    }
+  }
   for (let index = 0; index < appInstanceIds.length; index += 1) {
     const instanceId = appInstanceIds[index];
     const commandId = await sendCommand(
@@ -161,7 +168,7 @@ async function deployImage(approval, image, documentName) {
     '--tags',
     `Key=FastPassImageDigest,Value=${image.digest}`,
     `Key=FastPassBuildSha,Value=${image.gitSha}`,
-  ]);
+  ], { allowEmpty: true });
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {
     try {
@@ -333,7 +340,12 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  process.stderr.write(`remote runner rejected: ${error.message}\n`);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    process.stderr.write(`remote runner rejected: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}

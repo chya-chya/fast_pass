@@ -99,8 +99,8 @@ data "aws_iam_policy_document" "load_generator" {
   statement {
     sid = "VerifyArtifactBucketControls"
     actions = [
-      "s3:GetBucketEncryption",
-      "s3:GetBucketLifecycleConfiguration",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetLifecycleConfiguration",
       "s3:GetBucketPublicAccessBlock",
       "s3:GetBucketVersioning",
     ]
