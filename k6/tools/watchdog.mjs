@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from 'node:child_process';
-import { appendFile, rename, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,10 @@ import pg from 'pg';
 import Redis from 'ioredis';
 
 import { loadConfig } from '../lib/config.js';
+import {
+  calculateLinuxCpuPercent,
+  parseLinuxCpuCounters,
+} from '../lib/linux-cpu.js';
 import {
   evaluateWatchdogViolations,
   updateViolationCounters,
@@ -60,13 +64,11 @@ async function atomicWrite(filePath, value) {
   await rename(temporary, filePath);
 }
 
-async function generatorCpuPercent(pid) {
-  const result = await execFileAsync('ps', ['-p', String(pid), '-o', '%cpu='], {
-    timeout: 2000,
-  });
-  const value = Number(result.stdout.trim());
-  if (!Number.isFinite(value)) throw new Error('generator CPU is unavailable');
-  return value;
+async function generatorCpuPercent() {
+  const first = parseLinuxCpuCounters(await readFile('/proc/stat', 'utf8'));
+  await sleep(250);
+  const second = parseLinuxCpuCounters(await readFile('/proc/stat', 'utf8'));
+  return calculateLinuxCpuPercent(first, second);
 }
 
 async function awsJson(region, args) {
@@ -346,7 +348,7 @@ async function main() {
         : 'fourteen_worker_metrics',
       database: 'direct_pg_stat_database',
       redis: 'direct_info',
-      loadGenerator: 'local_process_cpu',
+      loadGenerator: 'host_proc_stat_cpu',
       alb: config.isLocal
         ? 'unavailable_in_local_disposable_environment'
         : 'aws_target_health',
@@ -402,7 +404,7 @@ async function main() {
              FROM pg_stat_database WHERE datname = current_database()`,
           ),
           redis.info(),
-          generatorCpuPercent(k6Pid),
+          generatorCpuPercent(),
           config.isLocal ? Promise.resolve([]) : collectPm2Snapshots(),
           config.isLocal
             ? Promise.resolve({

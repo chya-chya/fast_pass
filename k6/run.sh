@@ -76,7 +76,11 @@ if [[ "${SCENARIO}" =~ ^(spike|soak)$ ]] || [[ "${REMOTE_APPROVAL_VERIFIED:-fals
 fi
 
 if [[ ${watchdog_enabled} -eq 1 ]]; then
-  node k6/tools/watchdog.mjs --preflight
+  if ! node k6/tools/watchdog.mjs --preflight; then
+    node k6/tools/artifact-state.mjs incomplete FAILED PREFLIGHT_REJECTED
+    artifact_open=0
+    exit 78
+  fi
 fi
 
 watchdog_status=0

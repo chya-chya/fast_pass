@@ -210,6 +210,10 @@ async function executeRun(run, baseEnv) {
   };
   loadConfig(env, { requireExecution: true });
   const runStatus = await execute('bash', ['k6/run.sh'], env);
+  if (runStatus === 78) {
+    await uploadIncomplete(env);
+    throw new Error(`${run.runId} monitoring preflight failed before k6 started`);
+  }
   const cleanupDryRun = await execute(
     'node',
     ['k6/tools/cleanup.mjs', '--dry-run'],
