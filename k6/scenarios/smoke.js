@@ -14,6 +14,7 @@ import {
   registerFixture,
 } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
+import { requestIdFor } from '../lib/consistency.js';
 import { recordReservationOutcome } from '../lib/metrics.js';
 import { createHandleSummary } from '../lib/summary.js';
 
@@ -132,7 +133,10 @@ export function setup() {
 export default function (data) {
   const index = (exec.vu.idInTest - 1) % data.seatIds.length;
   const token = data.tokens[index % data.tokens.length];
-  const requestId = `${inspectConfig.runId}-req-${exec.scenario.iterationInTest}`;
+  const requestId = requestIdFor(
+    inspectConfig.runId,
+    exec.scenario.iterationInTest,
+  );
   const response = createReservation(
     inspectConfig.baseUrl,
     token,
