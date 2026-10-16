@@ -90,3 +90,27 @@ test('builds a wildcard-free deterministic range cleanup for remote runs', () =>
   assert.equal(plan.database.reservationOwnership.value, remoteConfig.runId);
   assert.equal(JSON.stringify(plan).includes('*'), false);
 });
+
+test('uses run ownership and compact Redis keys for a remote ID fixture', () => {
+  const remoteConfig = {
+    ...config(),
+    testEnvironment: 'remote-disposable',
+  };
+  const plan = buildCleanupPlan(remoteConfig, fixture());
+  assert.deepEqual(plan.database.reservationOwnership, {
+    field: 'testRunId',
+    value: remoteConfig.runId,
+  });
+  assert.ok(
+    plan.redis.keys.includes('k6:cleanup-env:run:cleanup-run:attempted_bitmap'),
+  );
+  assert.ok(
+    plan.redis.keys.includes(
+      'k6:cleanup-env:run:cleanup-run:terminal_success_bitmap',
+    ),
+  );
+  assert.ok(
+    !plan.redis.keys.includes('k6:cleanup-env:run:cleanup-run:requests'),
+  );
+  assert.equal(JSON.stringify(plan).includes('*'), false);
+});

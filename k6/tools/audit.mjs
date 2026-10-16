@@ -20,11 +20,13 @@ import {
   buildExpectedRequestManifest,
   requestIdFor,
 } from '../lib/consistency.js';
+import { buildCompactTrackingAuditInputs } from '../lib/compact-tracking.js';
 import { longRunIterationIndices } from '../lib/endurance.js';
 import {
   APP_METRIC_NAMES,
   summarizePrometheusWindow,
 } from '../lib/prometheus.js';
+import { bitmapIndicesFromBytes } from '../lib/redis-bitmap.js';
 import { collectApplicationSnapshot } from './metrics-source.mjs';
 
 const { Pool } = pg;
@@ -230,6 +232,10 @@ async function readStreamPayloads(redis, stream) {
   return entries.map(([, fields]) => pairsToObject(fields).payload || '');
 }
 
+async function readBitmapIndices(redis, key) {
+  return bitmapIndicesFromBytes(await redis.getBuffer(key));
+}
+
 async function main() {
   const config = loadConfig(process.env, { requireExecution: true });
   const databaseUrl = process.env.AUDIT_DATABASE_URL;
@@ -366,31 +372,48 @@ async function main() {
       stableSince === null ||
       Date.now() - stableSince < stableMs;
 
-    const [
-      acceptedMappings,
-      processedIds,
-      failedMappings,
-      requestMappings,
-      queueMessages,
-    ] = await Promise.all([
-      redis.hgetall(`${base}accepted`),
-      redis.smembers(`${base}processed`),
-      redis.hgetall(`${base}failed`),
-      redis.hgetall(`${base}requests`),
-      Promise.all([
-        readStreamPayloads(redis, RESERVATION_STREAM),
-        readStreamPayloads(redis, RESERVATION_DLQ_STREAM),
-      ]),
+    let acceptedMappings;
+    let processedIds;
+    let failedMappings;
+    let actualRequests;
+    let compactTracking = null;
+    const queueMessagesPromise = Promise.all([
+      readStreamPayloads(redis, RESERVATION_STREAM),
+      readStreamPayloads(redis, RESERVATION_DLQ_STREAM),
     ]);
-    const actualRequests = Object.fromEntries(
-      Object.entries(requestMappings).map(([requestId, value]) => {
-        try {
-          return [requestId, JSON.parse(value)];
-        } catch {
-          return [requestId, null];
-        }
-      }),
-    );
+    if (config.isLocal) {
+      const [accepted, processed, failed, requestMappings] = await Promise.all([
+        redis.hgetall(`${base}accepted`),
+        redis.smembers(`${base}processed`),
+        redis.hgetall(`${base}failed`),
+        redis.hgetall(`${base}requests`),
+      ]);
+      acceptedMappings = accepted;
+      processedIds = processed;
+      failedMappings = failed;
+      actualRequests = Object.fromEntries(
+        Object.entries(requestMappings).map(([requestId, value]) => {
+          try {
+            return [requestId, JSON.parse(value)];
+          } catch {
+            return [requestId, null];
+          }
+        }),
+      );
+    } else {
+      const [attempted, accepted, processed, failed] = await Promise.all([
+        readBitmapIndices(redis, `${base}attempted_bitmap`),
+        readBitmapIndices(redis, `${base}accepted_bitmap`),
+        readBitmapIndices(redis, `${base}processed_bitmap`),
+        readBitmapIndices(redis, `${base}terminal_failure_bitmap`),
+      ]);
+      compactTracking = { attempted, accepted, processed, failed };
+      acceptedMappings = {};
+      processedIds = [];
+      failedMappings = {};
+      actualRequests = {};
+    }
+    const queueMessages = await queueMessagesPromise;
     const foreignQueueMessages = queueMessages
       .flat()
       .reduce(
@@ -399,12 +422,13 @@ async function main() {
       );
 
     const reservationRows = await pool.query(
-      `SELECT r.id, r."seatId", r.status
+      `SELECT r.id, r."userId", r."seatId", r."testRequestId", r.status
        FROM "Reservation" r
        JOIN "Seat" s ON s.id = r."seatId"
        WHERE s."performanceId" = $1
+         AND ($2::text IS NULL OR r."testRunId" = $2)
        ORDER BY r.id`,
-      [fixtureSource.performanceId],
+      [fixtureSource.performanceId, config.isLocal ? null : config.runId],
     );
     const seatStatusRows = await pool.query(
       `SELECT status::text, COUNT(*)::int AS count
@@ -482,6 +506,16 @@ async function main() {
         ? Math.max(capacityRequestCount - 1, 0)
         : 0
       : fixtureSource.expectedConflicts;
+    if (compactTracking) {
+      const expectedRequests = consistencyFixture?.requests || {};
+      ({ actualRequests, acceptedMappings, processedIds, failedMappings } =
+        buildCompactTrackingAuditInputs({
+          runId: config.runId,
+          expectedRequests,
+          reservations: reservationRows.rows,
+          ...compactTracking,
+        }));
+    }
     const audit = buildConsistencyAudit({
       runId: config.runId,
       testEnvId: config.testEnvId,

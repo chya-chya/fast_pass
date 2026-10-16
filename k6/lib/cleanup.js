@@ -83,16 +83,30 @@ export function buildCleanupPlan(config, fixture) {
     'reservation IDs',
   );
   const base = `${config.redisKeyPrefix}run:${config.runId}:`;
-  const runKeys = [
-    'fixture',
-    'state',
-    'counters',
-    'accepted',
-    'processing',
-    'processed',
-    'failed',
-    'requests',
-  ].map((suffix) => `${base}${suffix}`);
+  const runKeySuffixes =
+    config.testEnvironment === 'remote-disposable'
+      ? [
+          'fixture',
+          'state',
+          'counters',
+          'attempted_bitmap',
+          'accepted_bitmap',
+          'processing_bitmap',
+          'processed_bitmap',
+          'terminal_success_bitmap',
+          'terminal_failure_bitmap',
+        ]
+      : [
+          'fixture',
+          'state',
+          'counters',
+          'accepted',
+          'processing',
+          'processed',
+          'failed',
+          'requests',
+        ];
+  const runKeys = runKeySuffixes.map((suffix) => `${base}${suffix}`);
   const seatKeys = seatIds.flatMap((seatId) => [
     `seat:${seatId}:status`,
     `locks:seats:${seatId}`,
@@ -104,6 +118,10 @@ export function buildCleanupPlan(config, fixture) {
     testEnvId: config.testEnvId,
     database: {
       reservationIds,
+      reservationOwnership:
+        config.testEnvironment === 'remote-disposable'
+          ? { field: 'testRunId', value: config.runId }
+          : null,
       seatIds,
       performanceIds,
       eventIds,

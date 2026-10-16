@@ -275,11 +275,14 @@ async function executeCleanup(config, plan) {
       : null;
     await client.query('BEGIN');
     const deleted = {
-      reservations: await deleteIds(
-        client,
-        'Reservation',
-        plan.database.reservationIds,
-      ),
+      reservations: config.isLocal
+        ? await deleteIds(client, 'Reservation', plan.database.reservationIds)
+        : (
+            await client.query(
+              `DELETE FROM "Reservation" WHERE "testRunId" = $1`,
+              [config.runId],
+            )
+          ).rowCount,
       seats: await deleteIds(client, 'Seat', plan.database.seatIds),
       performances: await deleteIds(
         client,
