@@ -24,6 +24,11 @@ import { loadConfig } from '../lib/config.js';
 import { requestIdFor } from '../lib/consistency.js';
 import { transientFixtureEmail } from '../lib/fixture-identity.js';
 import {
+  fixtureEmail,
+  fixtureId,
+  rangeAssignment,
+} from '../lib/fixture-range.js';
+import {
   recordCapacityOutcome,
   recordReservationOutcome,
   requestStartOffset,
@@ -82,6 +87,35 @@ export function setup() {
     requireExecution: true,
     scenario: 'capacity-vu',
   });
+  if (executionConfig.fixtureSeedMode === 'chunked-bulk') {
+    if (executionConfig.isLocal || !__ENV.FIXTURE_USER_PASSWORD) {
+      throw new Error('approved remote fixture credentials are required');
+    }
+    const tokens = [];
+    for (let index = 0; index < executionConfig.userCount; index += 1) {
+      const loginBody = parseRequiredObject(
+        login(
+          executionConfig.baseUrl,
+          {
+            email: fixtureEmail(executionConfig.runId, index),
+            password: __ENV.FIXTURE_USER_PASSWORD,
+          },
+          `${executionConfig.scenario}_setup`,
+        ),
+        200,
+        ['accessToken'],
+        'capacity fixture login',
+      );
+      tokens.push(loginBody.accessToken);
+    }
+    return {
+      tokens,
+      userCount: executionConfig.userCount,
+      seatCount: executionConfig.seatCount,
+      performanceId: fixtureId(executionConfig.runId, 'performance'),
+      fixtureMode: 'deterministic-range',
+    };
+  }
   const tokens = [];
   const userIds = [];
   const suffix = `${executionConfig.runId}-${randomText(10)}`;
@@ -212,13 +246,16 @@ export default function (data) {
     sleep(config.capacityThinkTimeMs / 1000);
   }
 
-  const assignment = capacityAssignmentFor(
-    iteration,
-    data.userIds,
-    data.seatIds,
-    config.capacityProfile,
-    config.capacityRequestBudget,
-  );
+  const assignment =
+    data.fixtureMode === 'deterministic-range'
+      ? rangeAssignment(iteration, config.runId, data.userCount, data.seatCount)
+      : capacityAssignmentFor(
+          iteration,
+          data.userIds,
+          data.seatIds,
+          config.capacityProfile,
+          config.capacityRequestBudget,
+        );
   const requestId = requestIdFor(config.runId, iteration);
   const elapsedMs = Math.max(0, Date.now() - Number(exec.scenario.startTime));
   const stageIndex = capacityStageIndex(elapsedMs, stageWindows);

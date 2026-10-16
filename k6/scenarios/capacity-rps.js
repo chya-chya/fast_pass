@@ -22,6 +22,11 @@ import { loadConfig } from '../lib/config.js';
 import { requestIdFor } from '../lib/consistency.js';
 import { transientFixtureEmail } from '../lib/fixture-identity.js';
 import {
+  fixtureEmail,
+  fixtureId,
+  rangeAssignment,
+} from '../lib/fixture-range.js';
+import {
   recordReservationOutcome,
   recordRpsRequestStarted,
   recordRpsResponseCompleted,
@@ -116,6 +121,35 @@ export function setup() {
     requireExecution: true,
     scenario: 'capacity-rps',
   });
+  if (executionConfig.fixtureSeedMode === 'chunked-bulk') {
+    if (executionConfig.isLocal || !__ENV.FIXTURE_USER_PASSWORD) {
+      throw new Error('approved remote fixture credentials are required');
+    }
+    const tokens = [];
+    for (let index = 0; index < executionConfig.userCount; index += 1) {
+      const loginBody = parseRequiredObject(
+        login(
+          executionConfig.baseUrl,
+          {
+            email: fixtureEmail(executionConfig.runId, index),
+            password: __ENV.FIXTURE_USER_PASSWORD,
+          },
+          `${executionConfig.scenario}_setup`,
+        ),
+        200,
+        ['accessToken'],
+        'RPS fixture login',
+      );
+      tokens.push(loginBody.accessToken);
+    }
+    return {
+      tokens,
+      userCount: executionConfig.userCount,
+      seatCount: executionConfig.seatCount,
+      performanceId: fixtureId(executionConfig.runId, 'performance'),
+      fixtureMode: 'deterministic-range',
+    };
+  }
   const tokens = [];
   const userIds = [];
   const suffix = `${executionConfig.runId}-${randomText(10)}`;
@@ -240,13 +274,16 @@ export default function (data) {
       'RPS request budget exhausted; increase RPS_REQUEST_BUDGET before rerunning',
     );
   }
-  const assignment = capacityAssignmentFor(
-    iteration,
-    data.userIds,
-    data.seatIds,
-    config.capacityProfile,
-    config.rpsRequestBudget,
-  );
+  const assignment =
+    data.fixtureMode === 'deterministic-range'
+      ? rangeAssignment(iteration, config.runId, data.userCount, data.seatCount)
+      : capacityAssignmentFor(
+          iteration,
+          data.userIds,
+          data.seatIds,
+          config.capacityProfile,
+          config.rpsRequestBudget,
+        );
   const requestId = requestIdFor(config.runId, iteration);
   const elapsedMs = Math.max(0, Date.now() - Number(exec.scenario.startTime));
   const stageIndex = exploration ? rpsStageIndex(elapsedMs, stageWindows) : 0;

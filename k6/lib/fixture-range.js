@@ -13,7 +13,24 @@ export function fixtureId(runId, kind, index = null) {
 }
 
 export function fixtureEmail(runId, index) {
-  return `${fixtureId(runId, 'user', index)}@load.invalid`;
+  fixtureId(runId, 'user', index);
+  let hash = 2166136261;
+  for (let offset = 0; offset < runId.length; offset += 1) {
+    hash ^= runId.charCodeAt(offset);
+    hash = Math.imul(hash, 16777619);
+  }
+  const token = runId.replace(/[^A-Za-z0-9]/g, '-');
+  const localPart = [
+    'k6',
+    token.slice(0, 12),
+    (hash >>> 0).toString(16).padStart(8, '0'),
+    token.slice(-12),
+    String(index).padStart(8, '0'),
+  ].join('-');
+  if (localPart.length > 64) {
+    throw new Error('fixture email local part exceeds 64 characters');
+  }
+  return `${localPart}@load.invalid`;
 }
 
 export function rangeAssignment(iteration, runId, userCount, seatCount) {

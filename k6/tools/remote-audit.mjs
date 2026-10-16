@@ -99,11 +99,20 @@ async function main() {
     const base = `${config.redisKeyPrefix}run:${config.runId}:`;
     const fixtureText = await redis.get(`${base}fixture`);
     const fixture = fixtureText ? JSON.parse(fixtureText) : null;
+    const approvedRequestBudget =
+      config.scenario === 'capacity-vu'
+        ? config.capacityRequestBudget
+        : config.scenario === 'capacity-rps'
+          ? config.rpsRequestBudget
+          : config.loadRequestBudget;
     if (
       fixture?.schemaVersion !== 2 ||
       fixture.runId !== config.runId ||
       fixture.userRange?.count !== config.userCount ||
-      fixture.seatRange?.count !== config.seatCount
+      fixture.seatRange?.count !== config.seatCount ||
+      fixture.requestManifest?.schemaVersion !== 3 ||
+      fixture.requestManifest?.requestBudget !== approvedRequestBudget ||
+      fixture.requestManifest?.assignment !== 'deterministic_range_unique_seat'
     ) {
       throw new Error('remote fixture boundary is invalid');
     }
@@ -162,7 +171,11 @@ async function main() {
     );
     const databaseCounts = database.rows[0];
     const expectedCount = Number(
-      summary.longRunLoad?.startedReservationRequests || 0,
+      config.scenario === 'capacity-vu'
+        ? summary.metrics?.reservation_requests?.values?.count || 0
+        : config.scenario === 'capacity-rps'
+          ? summary.rpsLoad?.startedReservationRequests || 0
+          : summary.longRunLoad?.startedReservationRequests || 0,
     );
     const reasons = [];
     if (!drained) reasons.push('DRAIN_TIMEOUT');
@@ -192,12 +205,20 @@ async function main() {
       reasons.push(watchdog.abortReason || 'WATCHDOG_INCOMPLETE');
     }
     const pass = reasons.length === 0;
+    const verdictKind =
+      config.scenario === 'capacity-vu'
+        ? 'exploratory'
+        : config.scenario === 'capacity-rps'
+          ? summary.verdict?.kind || 'capacity'
+          : config.scenario === 'spike'
+            ? 'recovery-qualification'
+            : 'endurance-qualification';
     const experimentVerdict = {
-      kind:
-        config.scenario === 'spike'
-          ? 'recovery-qualification'
-          : 'endurance-qualification',
-      status: pass && summary.thresholdPassed ? 'PASS' : 'FAIL',
+      kind: verdictKind,
+      status:
+        pass && summary.thresholdPassed
+          ? summary.verdict?.status || 'PASS'
+          : 'FAIL',
       reasons: [
         ...reasons,
         ...(summary.thresholdPassed ? [] : ['K6_THRESHOLD_FAILED']),
@@ -316,7 +337,12 @@ async function main() {
         workers: 14,
         processRestarts: watchdog.processRestarts,
       },
-      load: summary.longRunLoad || null,
+      load:
+        summary.longRunLoad ||
+        summary.rpsLoad ||
+        (summary.capacityStages
+          ? { capacityStages: summary.capacityStages }
+          : null),
       watchdog,
       rawTimeseries: { status: 'pending-upload' },
     };
@@ -331,7 +357,7 @@ async function main() {
       '',
       `- Environment: ${config.testEnvId}`,
       `- Scenario: ${config.scenario}`,
-      `- Request budget: ${config.loadRequestBudget}`,
+      `- Request budget: ${approvedRequestBudget}`,
       '',
       '## 정합성 결과',
       '',

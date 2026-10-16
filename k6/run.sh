@@ -66,7 +66,7 @@ fi
 node k6/tools/artifact-state.mjs preflight
 node k6/tools/capture-app-metrics.mjs
 
-if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' && "${SCENARIO}" =~ ^(spike|soak)$ && "${FIXTURE_SEED_MODE:-chunked-bulk}" == 'chunked-bulk' ]]; then
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' && "${FIXTURE_SEED_MODE:-}" == 'chunked-bulk' ]]; then
   node k6/tools/fixture-provision.mjs --execute
 fi
 

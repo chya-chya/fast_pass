@@ -98,6 +98,18 @@ async function main() {
   if (config.isLocal || config.fixtureSeedMode !== 'chunked-bulk') {
     throw new Error('chunked fixture provisioning is remote-only');
   }
+  if (config.capacityProfile !== 'unique-seat') {
+    throw new Error('chunked fixture provisioning requires unique-seat mode');
+  }
+  const requestBudget =
+    config.scenario === 'capacity-vu'
+      ? config.capacityRequestBudget
+      : config.scenario === 'capacity-rps'
+        ? config.rpsRequestBudget
+        : config.loadRequestBudget;
+  if (!Number.isInteger(requestBudget) || requestBudget !== config.seatCount) {
+    throw new Error('chunked fixture request budget does not match seat range');
+  }
   const password = process.env.FIXTURE_USER_PASSWORD || '';
   if (!/^[\x21-\x7E]{32,128}$/.test(password)) {
     throw new Error(
@@ -255,7 +267,7 @@ async function main() {
       },
       requestManifest: {
         schemaVersion: 3,
-        requestBudget: config.loadRequestBudget,
+        requestBudget,
         assignment: 'deterministic_range_unique_seat',
       },
     };

@@ -289,6 +289,8 @@ export function loadConfig(
   const spikeScenario = scenario === 'spike';
   const soakScenario = scenario === 'soak';
   const longRunScenario = spikeScenario || soakScenario;
+  const bulkFixtureScenario =
+    longRunScenario || (capacityScenario && !target.isLocal);
   const capacityProfile = env.CAPACITY_PROFILE || 'unique-seat';
   if (capacityScenario && !CAPACITY_PROFILES.includes(capacityProfile)) {
     errors.push(
@@ -651,16 +653,16 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureSeedMode = longRunScenario
+  const fixtureSeedMode = bulkFixtureScenario
     ? env.FIXTURE_SEED_MODE || 'chunked-bulk'
     : null;
   if (
-    longRunScenario &&
+    bulkFixtureScenario &&
     !['api-array', 'chunked-bulk'].includes(fixtureSeedMode)
   ) {
     errors.push('FIXTURE_SEED_MODE must be api-array or chunked-bulk');
   }
-  const fixtureSeedChunkSize = longRunScenario
+  const fixtureSeedChunkSize = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_SEED_CHUNK_SIZE',
         env.FIXTURE_SEED_CHUNK_SIZE,
@@ -670,7 +672,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxUsers = longRunScenario
+  const fixtureMaxUsers = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_USERS',
         env.FIXTURE_MAX_USERS,
@@ -680,7 +682,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxSeats = longRunScenario
+  const fixtureMaxSeats = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_SEATS',
         env.FIXTURE_MAX_SEATS,
@@ -690,7 +692,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxDatabaseRows = longRunScenario
+  const fixtureMaxDatabaseRows = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_DATABASE_ROWS',
         env.FIXTURE_MAX_DATABASE_ROWS,
@@ -700,7 +702,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxDatabaseBytes = longRunScenario
+  const fixtureMaxDatabaseBytes = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_DATABASE_BYTES',
         env.FIXTURE_MAX_DATABASE_BYTES,
@@ -710,7 +712,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxRedisBytes = longRunScenario
+  const fixtureMaxRedisBytes = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_REDIS_BYTES',
         env.FIXTURE_MAX_REDIS_BYTES,
@@ -720,7 +722,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureMaxStorageBytes = longRunScenario
+  const fixtureMaxStorageBytes = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_MAX_STORAGE_BYTES',
         env.FIXTURE_MAX_STORAGE_BYTES,
@@ -730,7 +732,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureDatabaseBytesPerRequest = longRunScenario
+  const fixtureDatabaseBytesPerRequest = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_DATABASE_BYTES_PER_REQUEST',
         env.FIXTURE_DATABASE_BYTES_PER_REQUEST,
@@ -740,7 +742,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureRedisBytesPerRequest = longRunScenario
+  const fixtureRedisBytesPerRequest = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_REDIS_BYTES_PER_REQUEST',
         env.FIXTURE_REDIS_BYTES_PER_REQUEST,
@@ -750,7 +752,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureSeedRowsPerSecond = longRunScenario
+  const fixtureSeedRowsPerSecond = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_SEED_ROWS_PER_SECOND',
         env.FIXTURE_SEED_ROWS_PER_SECOND,
@@ -760,7 +762,7 @@ export function loadConfig(
         errors,
       )
     : 0;
-  const fixtureCleanupRowsPerSecond = longRunScenario
+  const fixtureCleanupRowsPerSecond = bulkFixtureScenario
     ? parseInteger(
         'FIXTURE_CLEANUP_ROWS_PER_SECOND',
         env.FIXTURE_CLEANUP_ROWS_PER_SECOND,
@@ -1006,9 +1008,14 @@ export function loadConfig(
     longRunScenario ? 100000000 : capacityScenario ? 25000 : 100,
     errors,
   );
-  const fixtureCapacityPlan = longRunScenario
+  const fixtureRequestBudget = capacityVuScenario
+    ? capacityRequestBudget
+    : capacityRpsScenario
+      ? rpsRequestBudget
+      : loadRequestBudget;
+  const fixtureCapacityPlan = bulkFixtureScenario
     ? buildFixtureCapacityPlan({
-        requestBudget: loadRequestBudget,
+        requestBudget: fixtureRequestBudget,
         userCount,
         databaseBytesPerRequest: fixtureDatabaseBytesPerRequest,
         redisBytesPerRequest: fixtureRedisBytesPerRequest,
@@ -1125,17 +1132,11 @@ export function loadConfig(
       );
     }
   }
-  if (longRunScenario) {
-    if (loadPreAllocatedVus > loadMaxVus) {
-      errors.push('LOAD_PRE_ALLOCATED_VUS must be at most LOAD_MAX_VUS');
-    }
-    if (loadRequestBudget < loadRequiredRequestBudget) {
+  if (bulkFixtureScenario) {
+    if (capacityScenario && capacityProfile !== 'unique-seat') {
       errors.push(
-        `LOAD_REQUEST_BUDGET must be at least ${loadRequiredRequestBudget} for the configured profile and safety margin`,
+        'remote capacity execution requires the deterministic unique-seat fixture',
       );
-    }
-    if (seatCount !== loadRequestBudget) {
-      errors.push('SEAT_COUNT must equal LOAD_REQUEST_BUDGET');
     }
     if (userCount > fixtureMaxUsers) {
       errors.push('fixture users exceed FIXTURE_MAX_USERS');
@@ -1154,6 +1155,19 @@ export function loadConfig(
     }
     if (fixtureCapacityPlan.estimatedStorageBytes > fixtureMaxStorageBytes) {
       errors.push('fixture storage bytes exceed FIXTURE_MAX_STORAGE_BYTES');
+    }
+  }
+  if (longRunScenario) {
+    if (loadPreAllocatedVus > loadMaxVus) {
+      errors.push('LOAD_PRE_ALLOCATED_VUS must be at most LOAD_MAX_VUS');
+    }
+    if (loadRequestBudget < loadRequiredRequestBudget) {
+      errors.push(
+        `LOAD_REQUEST_BUDGET must be at least ${loadRequiredRequestBudget} for the configured profile and safety margin`,
+      );
+    }
+    if (seatCount !== loadRequestBudget) {
+      errors.push('SEAT_COUNT must equal LOAD_REQUEST_BUDGET');
     }
     if (loadAccessTokenTtl.milliseconds < loadRequiredTokenTtlMs) {
       errors.push(

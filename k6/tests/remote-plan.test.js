@@ -26,6 +26,14 @@ test('builds the approved candidate sequence with three 100 percent confirmation
   );
   assert.equal(matrix.at(-1).scenario, 'soak');
   assert.ok(matrix.every((run) => run.imageRole === 'candidate'));
+  for (const scenario of ['capacity-vu', 'capacity-rps']) {
+    const runs = matrix.filter((run) => run.scenario === scenario);
+    assert.ok(runs.length > 0);
+    assert.ok(
+      runs.every((run) => run.env.FIXTURE_SEED_MODE === 'chunked-bulk'),
+    );
+    assert.ok(runs.every((run) => Number(run.env.FIXTURE_MAX_SEATS) > 0));
+  }
 });
 
 test('rejects matrix values that exceed explicit approval caps', async () => {

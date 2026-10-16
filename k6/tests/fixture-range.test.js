@@ -18,10 +18,16 @@ test('deterministically calculates one million fixture IDs without arrays', () =
     rangeAssignment(999_999, runId, 325, 1_000_000).userId,
     fixtureId(runId, 'user', 999_999 % 325),
   );
-  assert.equal(
-    fixtureEmail(runId, 4),
-    'remote-soak-001-user-00000004@load.invalid',
-  );
+  const email = fixtureEmail(runId, 4);
+  assert.equal(email, fixtureEmail(runId, 4));
+  assert.equal(email.endsWith('-00000004@load.invalid'), true);
+  assert.ok(email.split('@')[0].length <= 64);
+});
+
+test('keeps maximum-length run IDs within the email local-part limit', () => {
+  const email = fixtureEmail(`r${'a'.repeat(62)}z`, 99_999_999);
+  assert.ok(email.split('@')[0].length <= 64);
+  assert.notEqual(email, fixtureEmail(`r${'a'.repeat(61)}bz`, 99_999_999));
 });
 
 test('rejects an index outside the approved range', () => {

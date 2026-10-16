@@ -225,6 +225,46 @@ test('accepts only a bounded reduced local capacity profile', () => {
   assert.equal(config.seatCount, 64);
 });
 
+test('uses a bounded deterministic range fixture for remote capacity', () => {
+  const config = loadConfig(
+    validEnvironment({
+      BASE_URL: 'http://internal-fast-pass.ap-northeast-2.elb.amazonaws.com',
+      ALLOW_REMOTE_LOAD: 'true',
+      REMOTE_APPROVAL_MANIFEST: 'approval.json',
+      REMOTE_APPROVAL_VERIFIED: 'true',
+      TEST_ENVIRONMENT: 'remote-disposable',
+      EXPECTED_DB_TLS_MODE: 'require',
+      EXPECTED_REDIS_TLS_MODE: 'require',
+      SCENARIO: 'capacity-vu',
+      RUN_ID: 'capacity-remote',
+      RPS: undefined,
+      VU: undefined,
+      DURATION: undefined,
+      CAPACITY_PROFILE: 'unique-seat',
+      CAPACITY_VU_STAGES: '1,2,3,4',
+      CAPACITY_RAMP_DURATION: '1s',
+      CAPACITY_STAGE_HOLD_1: '2s',
+      CAPACITY_STAGE_HOLD_2: '2s',
+      CAPACITY_STAGE_HOLD_3: '2s',
+      CAPACITY_STAGE_HOLD_4: '2s',
+      CAPACITY_THINK_TIME: '1s',
+      CAPACITY_REQUEST_BUDGET: '64',
+      USER_COUNT: '4',
+      SEAT_COUNT: '64',
+      FIXTURE_SEED_MODE: 'chunked-bulk',
+      FIXTURE_MAX_USERS: '10',
+      FIXTURE_MAX_SEATS: '100',
+      FIXTURE_MAX_DATABASE_ROWS: '200',
+      FIXTURE_MAX_DATABASE_BYTES: '1000000',
+      FIXTURE_MAX_REDIS_BYTES: '1000000',
+      FIXTURE_MAX_STORAGE_BYTES: '1000000',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.fixtureSeedMode, 'chunked-bulk');
+  assert.equal(config.fixtureCapacityPlan.seats, 64);
+});
+
 test('rejects RPS targets and undersized capacity fixtures', () => {
   assert.throws(
     () =>

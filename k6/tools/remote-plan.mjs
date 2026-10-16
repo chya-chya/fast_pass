@@ -96,7 +96,17 @@ function buildImageRuns(approval, imageRole, timestamp) {
     approvedRequests: profile.consistencyVus,
   });
 
+  const rangeFixtureEnv = {
+    FIXTURE_SEED_MODE: 'chunked-bulk',
+    FIXTURE_MAX_USERS: String(limits.maxFixtureUsers),
+    FIXTURE_MAX_SEATS: String(limits.maxFixtureSeats),
+    FIXTURE_MAX_DATABASE_ROWS: String(limits.maxFixtureDatabaseRows),
+    FIXTURE_MAX_DATABASE_BYTES: String(limits.maxFixtureDatabaseBytes),
+    FIXTURE_MAX_REDIS_BYTES: String(limits.maxFixtureRedisBytes),
+    FIXTURE_MAX_STORAGE_BYTES: String(limits.maxFixtureDatabaseBytes),
+  };
   const vuEnv = {
+    ...rangeFixtureEnv,
     CAPACITY_VU_STAGES: profile.capacityVuStages.join(','),
     CAPACITY_RAMP_DURATION: `${profile.capacityVuRampSeconds}s`,
     CAPACITY_THINK_TIME: `${profile.capacityVuThinkSeconds}s`,
@@ -118,6 +128,7 @@ function buildImageRuns(approval, imageRole, timestamp) {
   });
 
   const rpsBase = {
+    ...rangeFixtureEnv,
     RPS_RATE: String(profile.stableRps),
     RPS_PRE_ALLOCATED_VUS: String(profile.preAllocatedVus),
     RPS_MAX_VUS: String(profile.maxVus),
@@ -189,16 +200,10 @@ function buildImageRuns(approval, imageRole, timestamp) {
     Math.ceil((longestRunSeconds + 42 * 60) / 3600),
   );
   const longCommon = {
+    ...rangeFixtureEnv,
     LOAD_PRE_ALLOCATED_VUS: String(profile.preAllocatedVus),
     LOAD_MAX_VUS: String(profile.maxVus),
     USER_COUNT: String(profile.maxVus),
-    FIXTURE_SEED_MODE: 'chunked-bulk',
-    FIXTURE_MAX_USERS: String(limits.maxFixtureUsers),
-    FIXTURE_MAX_SEATS: String(limits.maxFixtureSeats),
-    FIXTURE_MAX_DATABASE_ROWS: String(limits.maxFixtureDatabaseRows),
-    FIXTURE_MAX_DATABASE_BYTES: String(limits.maxFixtureDatabaseBytes),
-    FIXTURE_MAX_REDIS_BYTES: String(limits.maxFixtureRedisBytes),
-    FIXTURE_MAX_STORAGE_BYTES: String(limits.maxFixtureDatabaseBytes),
     LOAD_ACCESS_TOKEN_TTL: `${tokenTtlHours}h`,
   };
   const spikeRequests = Math.ceil(
