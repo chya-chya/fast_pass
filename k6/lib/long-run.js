@@ -15,6 +15,7 @@ import {
 } from './api.js';
 import { CAPACITY_ASSIGNMENTS, capacityAssignmentFor } from './capacity.js';
 import { requestIdFor } from './consistency.js';
+import { transientFixtureEmail } from './fixture-identity.js';
 import { fixtureEmail, fixtureId, rangeAssignment } from './fixture-range.js';
 import {
   recordLongRunRequestStarted,
@@ -66,11 +67,12 @@ export function setupLongRun(config, env) {
   const tokens = [];
   const userIds = [];
   const suffix = `${config.runId}-${randomText(10)}`;
+  const emailNonce = randomText(20);
   const setupScenario = `${config.scenario}_setup`;
 
   for (let index = 0; index < config.userCount; index += 1) {
     const credentials = {
-      email: `k6-${config.scenario}-${index}-${suffix}@example.invalid`,
+      email: transientFixtureEmail(config.scenario, index, emailNonce),
       password: `K6-${randomText(24)}-9a`,
       name: `k6-${config.runId}-${index}`,
     };

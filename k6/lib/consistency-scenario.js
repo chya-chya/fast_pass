@@ -20,6 +20,7 @@ import {
   REQUEST_ASSIGNMENT,
   requestIdFor,
 } from './consistency.js';
+import { transientFixtureEmail } from './fixture-identity.js';
 import { recordReservationOutcome, requestStartOffset } from './metrics.js';
 
 function randomText(length) {
@@ -35,9 +36,10 @@ export function setupConsistency(config, preflightToken) {
   const tokens = [];
   const userIds = [];
   const suffix = `${config.runId}-${randomText(10)}`;
+  const emailNonce = randomText(20);
   for (let index = 0; index < config.userCount; index += 1) {
     const credentials = {
-      email: `k6-${index}-${suffix}@example.invalid`,
+      email: transientFixtureEmail('consistency', index, emailNonce),
       password: `K6-${randomText(24)}-9a`,
       name: `k6-${config.runId}-${index}`,
     };

@@ -20,6 +20,7 @@ import {
 } from '../lib/capacity.js';
 import { loadConfig } from '../lib/config.js';
 import { requestIdFor } from '../lib/consistency.js';
+import { transientFixtureEmail } from '../lib/fixture-identity.js';
 import {
   recordReservationOutcome,
   recordRpsRequestStarted,
@@ -118,11 +119,12 @@ export function setup() {
   const tokens = [];
   const userIds = [];
   const suffix = `${executionConfig.runId}-${randomText(10)}`;
+  const emailNonce = randomText(20);
   const setupScenario = `${executionConfig.scenario}_setup`;
 
   for (let index = 0; index < executionConfig.userCount; index += 1) {
     const credentials = {
-      email: `k6-rps-${index}-${suffix}@example.invalid`,
+      email: transientFixtureEmail('rps', index, emailNonce),
       password: `K6-${randomText(24)}-9a`,
       name: `k6-${executionConfig.runId}-${index}`,
     };

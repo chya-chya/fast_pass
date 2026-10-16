@@ -15,6 +15,7 @@ import {
 } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
 import { requestIdFor } from '../lib/consistency.js';
+import { transientFixtureEmail } from '../lib/fixture-identity.js';
 import { recordReservationOutcome } from '../lib/metrics.js';
 import { createHandleSummary } from '../lib/summary.js';
 
@@ -54,10 +55,11 @@ export function setup() {
   const tokens = [];
   const userIds = [];
   const fixtureSuffix = `${config.runId}-${randomText(10)}`;
+  const emailNonce = randomText(20);
 
   for (let index = 0; index < config.userCount; index += 1) {
     const credentials = {
-      email: `k6-${index}-${fixtureSuffix}@example.invalid`,
+      email: transientFixtureEmail('smoke', index, emailNonce),
       password: `K6-${randomText(24)}-9a`,
       name: `k6-${config.runId}-${index}`,
     };
