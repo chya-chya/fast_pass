@@ -11,6 +11,14 @@ describe('readAccessTokenTtlSeconds', () => {
         K6_ACCESS_TOKEN_TTL_SECONDS: '7200',
       }),
     ).toBe(7200);
+    expect(
+      readAccessTokenTtlSeconds({
+        NODE_ENV: 'load-test',
+        ENABLE_TEST_PREFLIGHT: 'true',
+        TEST_ENVIRONMENT: 'remote-disposable',
+        K6_ACCESS_TOKEN_TTL_SECONDS: '7200',
+      }),
+    ).toBe(7200);
   });
 
   it('rejects test TTL overrides in production and shared environments', () => {

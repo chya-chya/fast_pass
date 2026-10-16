@@ -7,10 +7,13 @@ export function readAccessTokenTtlSeconds(
 ): number {
   const raw = env.K6_ACCESS_TOKEN_TTL_SECONDS;
   if (raw === undefined || raw === '') return DEFAULT_ACCESS_TOKEN_TTL_SECONDS;
+  const disposableEnvironment = ['local-disposable', 'remote-disposable'].includes(
+    env.TEST_ENVIRONMENT || '',
+  );
   if (
     env.NODE_ENV === 'production' ||
     env.ENABLE_TEST_PREFLIGHT !== 'true' ||
-    env.TEST_ENVIRONMENT !== 'local-disposable'
+    !disposableEnvironment
   ) {
     throw new Error('test access token TTL is forbidden in this environment');
   }
