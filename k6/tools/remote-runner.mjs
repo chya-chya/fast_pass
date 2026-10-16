@@ -78,8 +78,9 @@ async function sendCommand(
   instanceIds,
   parameters,
   timeoutSeconds,
+  output = null,
 ) {
-  const response = await awsJson(region, [
+  const args = [
     'ssm',
     'send-command',
     '--document-name',
@@ -90,7 +91,16 @@ async function sendCommand(
     JSON.stringify(parameters),
     '--timeout-seconds',
     String(timeoutSeconds),
-  ]);
+  ];
+  if (output) {
+    args.push(
+      '--output-s3-bucket-name',
+      output.bucket,
+      '--output-s3-key-prefix',
+      output.keyPrefix,
+    );
+  }
+  const response = await awsJson(region, args);
   const commandId = response.Command?.CommandId;
   if (!commandId) throw new Error('SSM did not return a command ID');
   return commandId;
@@ -133,7 +143,11 @@ async function deployImage(approval, image, documentName) {
   try {
     return await inspectRemoteInfrastructure(approval, image);
   } catch (error) {
-    if (!/deployed application identity does not match approval/.test(error.message)) {
+    if (
+      !/deployed application identity does not match approval/.test(
+        error.message,
+      )
+    ) {
       throw error;
     }
   }
@@ -160,15 +174,19 @@ async function deployImage(approval, image, documentName) {
       throw new Error(`deployed digest could not be verified on ${instanceId}`);
     }
   }
-  await awsJson(region, [
-    'ec2',
-    'create-tags',
-    '--resources',
-    ...appInstanceIds,
-    '--tags',
-    `Key=FastPassImageDigest,Value=${image.digest}`,
-    `Key=FastPassBuildSha,Value=${image.gitSha}`,
-  ], { allowEmpty: true });
+  await awsJson(
+    region,
+    [
+      'ec2',
+      'create-tags',
+      '--resources',
+      ...appInstanceIds,
+      '--tags',
+      `Key=FastPassImageDigest,Value=${image.digest}`,
+      `Key=FastPassBuildSha,Value=${image.gitSha}`,
+    ],
+    { allowEmpty: true },
+  );
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {
     try {
@@ -202,6 +220,10 @@ async function executeRole(approval, identity, imageRole, documentName) {
       Execute: ['true'],
     },
     86_400,
+    {
+      bucket: approval.environment.artifactBucket,
+      keyPrefix: `runs/commands/${identity.approvalId}/${identity.executionTimestamp}/${imageRole}`,
+    },
   );
   await waitForCommand(
     approval.environment.region,
@@ -302,10 +324,9 @@ async function main() {
     verifyRemoteStorage(approval),
   ]);
   const matrixStartedAt = new Date();
-  const executionTimestamp = matrixStartedAt
-    .toISOString()
-    .replace(/\D/g, '')
-    .slice(0, 17);
+  const executionTimestamp =
+    approval.resume?.executionTimestamp ||
+    matrixStartedAt.toISOString().replace(/\D/g, '').slice(0, 17);
   const matrix = buildRemoteExecutionMatrix(
     approval,
     matrixStartedAt,

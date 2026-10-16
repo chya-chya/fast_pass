@@ -94,3 +94,31 @@ test('refuses to draft approval before the temporary generator exists', async ()
     /load_generator_instance_id/,
   );
 });
+
+test('binds all resume lineage fields into the draft', async () => {
+  const resumeArguments = [
+    ...argumentsList,
+    '--resume-source-file',
+    '/tmp/source-approval.json',
+    '--resume-source-approval-id',
+    'phase12-candidate-01',
+    '--resume-source-version-id',
+    'source-version',
+    '--resume-source-checksum',
+    'a'.repeat(64),
+    '--resume-execution-timestamp',
+    '20990101000000000',
+  ];
+  const source = (
+    await buildCandidateApprovalDraft(
+      parseDraftArguments(argumentsList),
+      outputs('i-00000000000000007'),
+    )
+  ).draft;
+  const draft = await buildCandidateApprovalDraft(
+    parseDraftArguments(resumeArguments),
+    outputs(),
+    source,
+  );
+  assert.equal(draft.draft.resume.sourceVersionId, 'source-version');
+});

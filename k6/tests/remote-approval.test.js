@@ -61,3 +61,41 @@ test('requires baseline image identity in comparison mode', async () => {
     /baseline/,
   );
 });
+
+test('accepts a checksum-bound resume lineage to an older immutable version', async () => {
+  const { value } = await example();
+  value.resume = {
+    sourceApprovalId: value.approvalId,
+    sourceVersionId: 'version-1',
+    sourceChecksum: 'a'.repeat(64),
+    executionTimestamp: '20990101000000000',
+  };
+  const raw = `${JSON.stringify(value)}\n`;
+  const result = await validateRemoteApproval(raw, {
+    approvalId: value.approvalId,
+    versionId: 'version-2',
+    checksum: sha256(raw),
+    now: new Date('2099-01-01T01:00:00Z'),
+  });
+  assert.equal(result.approval.resume.sourceVersionId, 'version-1');
+});
+
+test('rejects resume lineage that changes the approval ID', async () => {
+  const { value } = await example();
+  value.resume = {
+    sourceApprovalId: 'different-approval',
+    sourceVersionId: 'version-1',
+    sourceChecksum: 'a'.repeat(64),
+    executionTimestamp: '20990101000000000',
+  };
+  const raw = `${JSON.stringify(value)}\n`;
+  await assert.rejects(
+    validateRemoteApproval(raw, {
+      approvalId: value.approvalId,
+      versionId: 'version-2',
+      checksum: sha256(raw),
+      now: new Date('2099-01-01T01:00:00Z'),
+    }),
+    /same approval ID/,
+  );
+});

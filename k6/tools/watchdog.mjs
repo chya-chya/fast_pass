@@ -243,6 +243,14 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function monitored(input, promise) {
+  return promise.catch(() => {
+    const error = new Error('watchdog input unavailable');
+    error.monitoringInput = input;
+    throw error;
+  });
+}
+
 async function main() {
   const config = loadConfig(process.env, { requireExecution: true });
   if (config.isLocal && !['spike', 'soak'].includes(config.scenario)) {
@@ -342,6 +350,8 @@ async function main() {
     processRestarts: 0,
     redisEvictions: 0,
     monitoringFailures: 0,
+    monitoringFailureCounts: {},
+    lastMonitoringFailure: null,
     monitoringInputs: {
       application: config.isLocal
         ? 'direct_metrics'
@@ -397,25 +407,37 @@ async function main() {
           pm2Snapshots,
           awsSample,
         ] = await Promise.all([
-          collectApplicationSnapshot(config),
-          pool.query(
-            `SELECT numbackends::int AS connections,
+          monitored(
+            'application_worker_metrics',
+            collectApplicationSnapshot(config),
+          ),
+          monitored(
+            'postgresql',
+            pool.query(
+              `SELECT numbackends::int AS connections,
                     current_setting('max_connections')::int AS maximum
              FROM pg_stat_database WHERE datname = current_database()`,
+            ),
           ),
-          redis.info(),
-          generatorCpuPercent(),
-          config.isLocal ? Promise.resolve([]) : collectPm2Snapshots(),
-          config.isLocal
-            ? Promise.resolve({
-                unhealthyTargets: 0,
-                minimumCpuCreditBalance: null,
-                maximumAppCpuPercent: 0,
-                databaseCpuPercent: null,
-                redisCpuPercent: null,
-                redisMemoryPercent: null,
-              })
-            : collectAwsSample(cloudwatchCache),
+          monitored('redis', redis.info()),
+          monitored('load_generator_cpu', generatorCpuPercent()),
+          monitored(
+            'pm2_exporters',
+            config.isLocal ? Promise.resolve([]) : collectPm2Snapshots(),
+          ),
+          monitored(
+            'aws_cloudwatch_and_alb',
+            config.isLocal
+              ? Promise.resolve({
+                  unhealthyTargets: 0,
+                  minimumCpuCreditBalance: null,
+                  maximumAppCpuPercent: 0,
+                  databaseCpuPercent: null,
+                  redisCpuPercent: null,
+                  redisMemoryPercent: null,
+                })
+              : collectAwsSample(cloudwatchCache),
+          ),
         ]);
         const requests = metricValue(snapshot, 'reservation_request_total');
         const unexpected = metricValue(
@@ -583,9 +605,27 @@ async function main() {
             mode: 0o600,
           });
         }
-      } catch {
+      } catch (error) {
         state.monitoringFailures += 1;
+        const input = error?.monitoringInput || 'unknown';
+        state.monitoringFailureCounts[input] =
+          (state.monitoringFailureCounts[input] || 0) + 1;
+        state.lastMonitoringFailure = {
+          at: new Date().toISOString(),
+          input,
+        };
         currentViolations = ['WATCHDOG_INPUT_UNAVAILABLE'];
+        if (!preflightOnly) {
+          await appendFile(
+            timeseriesPath,
+            `${JSON.stringify({
+              at: state.lastMonitoringFailure.at,
+              monitoringFailure: input,
+              violations: currentViolations,
+            })}\n`,
+            { mode: 0o600 },
+          );
+        }
       }
 
       state.sampleCount += 1;

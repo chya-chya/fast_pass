@@ -110,6 +110,16 @@ export async function validateRemoteApproval(
   ) {
     throw new Error('candidate-only approval must not imply a baseline');
   }
+  if (approval.resume) {
+    if (
+      approval.resume.sourceApprovalId !== approval.approvalId ||
+      approval.resume.sourceVersionId === versionId
+    ) {
+      throw new Error(
+        'resume must reference a different immutable version of the same approval ID',
+      );
+    }
+  }
   return Object.freeze({
     approval: Object.freeze(approval),
     checksum,

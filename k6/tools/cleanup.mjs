@@ -100,7 +100,7 @@ async function deleteIds(client, table, ids) {
   return result.rowCount;
 }
 
-async function executeCleanup(config, plan) {
+export async function executeCleanup(config, plan) {
   if (process.env.ALLOW_TEST_DATA_DELETE !== 'true') {
     throw new Error('ALLOW_TEST_DATA_DELETE=true is required');
   }
@@ -325,6 +325,50 @@ async function executeCleanup(config, plan) {
     await pool.end().catch(() => undefined);
     redis.disconnect();
   }
+}
+
+export async function recoverRangeOwnedData(config) {
+  if (
+    config.isLocal ||
+    config.fixtureSeedMode !== 'chunked-bulk' ||
+    process.env.REMOTE_APPROVAL_VERIFIED !== 'true' ||
+    process.env.REMOTE_CLEANUP_AUTHORIZED !== 'true' ||
+    process.env.ALLOW_TEST_DATA_DELETE !== 'true'
+  ) {
+    throw new Error('remote range recovery is not authorized');
+  }
+  const fixture = {
+    schemaVersion: 2,
+    runId: config.runId,
+    testEnvId: config.testEnvId,
+    userRange: {
+      kind: 'deterministic-v1',
+      start: 0,
+      count: config.userCount,
+    },
+    seatRange: {
+      kind: 'deterministic-v1',
+      start: 0,
+      count: config.seatCount,
+    },
+    eventId: fixtureId(config.runId, 'event'),
+    performanceId: fixtureId(config.runId, 'performance'),
+  };
+  const plan = buildCleanupPlan(config, fixture);
+  const deleted = await executeCleanup(config, plan);
+  return {
+    schemaVersion: 1,
+    runId: config.runId,
+    testEnvId: config.testEnvId,
+    mode: 'resume-exact-cleanup',
+    executedAt: new Date().toISOString(),
+    forbiddenOperations: plan.forbiddenOperations,
+    deleted,
+    verification: {
+      runOwnedRowsRemaining: deleted.remaining ?? null,
+      foreignRunDataPreserved: deleted.foreignPreserved ?? null,
+    },
+  };
 }
 
 async function main() {

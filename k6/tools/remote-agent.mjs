@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from '../lib/config.js';
@@ -12,6 +15,14 @@ import { verifyLocalGates } from './remote-gates.mjs';
 import { inspectRemoteInfrastructure } from './remote-inventory.mjs';
 import { buildRemoteExecutionMatrix } from './remote-plan.mjs';
 import { verifyRemoteStorage } from './remote-storage.mjs';
+import { recoverRangeOwnedData } from './cleanup.mjs';
+import {
+  assertResumeScope,
+  inspectSealedRemoteRun,
+  remoteRunHasEvidence,
+} from './remote-resume.mjs';
+
+const execFileAsync = promisify(execFile);
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -201,6 +212,43 @@ async function uploadIncomplete(env) {
   }
 }
 
+async function uploadRecoveryRecord(approval, record) {
+  const body = `${JSON.stringify(record, null, 2)}\n`;
+  const checksum = createHash('sha256').update(body).digest('hex');
+  const filePath = path.join(
+    tmpdir(),
+    `fast-pass-recovery-${process.pid}-${Date.now()}.json`,
+  );
+  try {
+    await writeFile(filePath, body, { mode: 0o600, flag: 'wx' });
+    await execFileAsync(
+      'aws',
+      [
+        '--region',
+        approval.environment.region,
+        's3api',
+        'put-object',
+        '--bucket',
+        approval.environment.artifactBucket,
+        '--key',
+        `runs/recovery/${record.runId}/${record.executedAt.replaceAll(':', '-')}.json`,
+        '--body',
+        filePath,
+        '--server-side-encryption',
+        'AES256',
+        '--content-type',
+        'application/json',
+        '--metadata',
+        `sha256=${checksum},retention=permanent`,
+        '--no-cli-pager',
+      ],
+      { timeout: 120_000, maxBuffer: 1024 * 1024 },
+    );
+  } finally {
+    await unlink(filePath).catch(() => undefined);
+  }
+}
+
 async function executeRun(run, baseEnv) {
   const env = {
     ...baseEnv,
@@ -212,7 +260,9 @@ async function executeRun(run, baseEnv) {
   const runStatus = await execute('bash', ['k6/run.sh'], env);
   if (runStatus === 78) {
     await uploadIncomplete(env);
-    throw new Error(`${run.runId} monitoring preflight failed before k6 started`);
+    throw new Error(
+      `${run.runId} monitoring preflight failed before k6 started`,
+    );
   }
   const cleanupDryRun = await execute(
     'node',
@@ -259,6 +309,29 @@ async function main() {
     region: process.env.AWS_REGION || 'ap-northeast-2',
   };
   const initial = await fetchVersionedRemoteApproval(approvalArgs);
+  let sourceApproval = null;
+  if (initial.approval.resume) {
+    const source = await fetchVersionedRemoteApproval({
+      bucket: process.env.REMOTE_APPROVAL_BUCKET,
+      approvalId: initial.approval.resume.sourceApprovalId,
+      versionId: initial.approval.resume.sourceVersionId,
+      checksum: initial.approval.resume.sourceChecksum,
+      region: process.env.AWS_REGION || 'ap-northeast-2',
+      requireActiveWindow: false,
+    });
+    assertResumeScope(initial.approval, source.approval, {
+      approvalId: initial.approval.resume.sourceApprovalId,
+      versionId: initial.approval.resume.sourceVersionId,
+      checksum: initial.approval.resume.sourceChecksum,
+    });
+    if (
+      process.env.REMOTE_EXECUTION_TIMESTAMP !==
+      initial.approval.resume.executionTimestamp
+    ) {
+      throw new Error('resume execution timestamp does not match approval');
+    }
+    sourceApproval = source.approval;
+  }
   const matrix = buildRemoteExecutionMatrix(
     initial.approval,
     new Date(),
@@ -271,6 +344,22 @@ async function main() {
     const verified = await fetchVersionedRemoteApproval(approvalArgs);
     const approval = verified.approval;
     assertRunWithinApproval(run, approval);
+    if (
+      approval.resume &&
+      (await inspectSealedRemoteRun({
+        run,
+        approval,
+        currentIdentity: {
+          approvalId: approval.approvalId,
+          versionId: verified.versionId,
+          checksum: verified.checksum,
+        },
+        sourceApproval,
+      }))
+    ) {
+      process.stdout.write(`resume verified sealed run: ${run.runId}\n`);
+      continue;
+    }
     await verifyLocalGates(repositoryRoot, approval);
     const inventory = await inspectRemoteInfrastructure(
       approval,
@@ -278,6 +367,16 @@ async function main() {
     );
     await verifyRemoteStorage(approval);
     const env = commonRunEnvironment(approval, verified, inventory, imageRole);
+    if (approval.resume && (await remoteRunHasEvidence(run, approval))) {
+      const recovery = await recoverRangeOwnedData(
+        loadConfig(
+          { ...env, ...run.env, RUN_ID: run.runId, SCENARIO: run.scenario },
+          { requireExecution: true },
+        ),
+      );
+      await uploadRecoveryRecord(approval, recovery);
+      process.stdout.write(`resume exact cleanup verified: ${run.runId}\n`);
+    }
     await executeRun(run, env);
   }
   process.stdout.write(`remote image role completed: ${imageRole}\n`);

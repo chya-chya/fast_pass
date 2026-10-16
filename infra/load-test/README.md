@@ -117,6 +117,18 @@ REMOTE_APPROVAL_BUCKET=<버킷> k6/execute-remote-session \
 
 실행기는 승인 범위를 확대하지 않습니다. Smoke, 축소 정합성, VU/RPS 탐색, 50%·75% 확인, 100% 3회, 선택적 110%, Spike, Soak 순서로 진행합니다. 각 Run 뒤에는 drain, DB·Redis 감사, cleanup dry-run, exact cleanup, 잔존 확인, S3 업로드와 체크섬 봉인을 마쳐야 다음 Run으로 넘어갑니다.
 
+중단된 실행을 이어갈 때는 기존 승인 객체를 덮어쓰지 않고 새 S3 버전을 만듭니다. 새 승인에는 `resume` 계보로 이전 Version ID·체크섬·실행 timestamp를 고정해야 합니다. 재개 러너는 이전 Run의 승인·이미지·감사·cleanup·체크섬을 모두 다시 검증한 뒤 봉인된 Run만 건너뜁니다. 미완료 Run의 흔적이 있으면 결정적 Run ID 범위만 exact cleanup하고 복구 기록을 S3에 영구 보존한 다음 그 Run부터 다시 실행합니다. 부하 상한, 중단 기준, 앱 이미지 또는 인프라 범위가 달라진 승인은 재개로 인정하지 않습니다.
+
+```sh
+k6/prepare-remote-approval \
+  <기존 candidate-only 승인 인자> \
+  --resume-source-file <검증한_이전_승인.json> \
+  --resume-source-approval-id <이전_APPROVAL_ID> \
+  --resume-source-version-id <이전_S3_VERSION_ID> \
+  --resume-source-checksum <이전_SHA256> \
+  --resume-execution-timestamp <이전_17자리_실행_TIMESTAMP>
+```
+
 자동 종료가 실패했다는 경고가 나오면 다음 명령으로 계획을 확인한 뒤 즉시 종료합니다. 이 명령도 발생기 삭제 외의 변경은 거부합니다.
 
 ```sh

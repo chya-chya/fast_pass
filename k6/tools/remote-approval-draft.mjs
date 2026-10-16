@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { sha256, validateRemoteApproval } from './remote-approval.mjs';
+import { assertResumeScope } from './remote-resume.mjs';
 
 const execFileAsync = promisify(execFile);
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +20,7 @@ const examplePath = path.join(
   'remote-approval.example.json',
 );
 
-const VALUE_FLAGS = new Set([
+const REQUIRED_VALUE_FLAGS = new Set([
   '--approval-id',
   '--approved-by',
   '--cost-owner',
@@ -30,6 +31,14 @@ const VALUE_FLAGS = new Set([
   '--baseline-absence-evidence',
   '--output',
 ]);
+const RESUME_VALUE_FLAGS = new Set([
+  '--resume-source-file',
+  '--resume-source-approval-id',
+  '--resume-source-version-id',
+  '--resume-source-checksum',
+  '--resume-execution-timestamp',
+]);
+const VALUE_FLAGS = new Set([...REQUIRED_VALUE_FLAGS, ...RESUME_VALUE_FLAGS]);
 
 export function parseDraftArguments(argv) {
   const values = {};
@@ -48,8 +57,14 @@ export function parseDraftArguments(argv) {
     }
     values[item] = argv[++index];
   }
-  for (const flag of VALUE_FLAGS) {
+  for (const flag of REQUIRED_VALUE_FLAGS) {
     if (!values[flag]) throw new Error(`${flag} is required`);
+  }
+  const resumeCount = [...RESUME_VALUE_FLAGS].filter(
+    (flag) => values[flag],
+  ).length;
+  if (resumeCount !== 0 && resumeCount !== RESUME_VALUE_FLAGS.size) {
+    throw new Error('all resume source arguments are required together');
   }
   if (!acknowledged) {
     throw new Error(
@@ -67,15 +82,20 @@ function outputValue(outputs, name) {
   return entry.value;
 }
 
-export async function buildCandidateApprovalDraft(args, outputs) {
+export async function buildCandidateApprovalDraft(
+  args,
+  outputs,
+  sourceApproval = null,
+) {
   const example = JSON.parse(await readFile(examplePath, 'utf8'));
+  const template = sourceApproval || example;
   const descriptor = outputValue(outputs, 'environment_descriptor');
   const images = outputValue(outputs, 'image_descriptor');
   const generatorId = outputValue(outputs, 'load_generator_instance_id');
   const approvalId = args['--approval-id'];
 
   const draft = {
-    ...example,
+    ...template,
     approvalId,
     approvedBy: args['--approved-by'],
     responsibility: {
@@ -83,7 +103,7 @@ export async function buildCandidateApprovalDraft(args, outputs) {
       incidentOwner: args['--incident-owner'],
     },
     environment: {
-      ...example.environment,
+      ...template.environment,
       id: descriptor.environment_id,
       baseUrl: outputValue(outputs, 'internal_base_url'),
       awsAccountId: outputValue(outputs, 'aws_account_id'),
@@ -109,11 +129,13 @@ export async function buildCandidateApprovalDraft(args, outputs) {
       startsAt: args['--starts-at'],
       endsAt: args['--ends-at'],
     },
-    mode: {
-      kind: 'candidate-only',
-      baselineAbsenceReason: args['--baseline-absence-reason'],
-      baselineAbsenceEvidence: args['--baseline-absence-evidence'],
-    },
+    mode: sourceApproval
+      ? sourceApproval.mode
+      : {
+          kind: 'candidate-only',
+          baselineAbsenceReason: args['--baseline-absence-reason'],
+          baselineAbsenceEvidence: args['--baseline-absence-evidence'],
+        },
     images: {
       candidate: {
         gitSha: images.candidate.git_sha,
@@ -124,8 +146,25 @@ export async function buildCandidateApprovalDraft(args, outputs) {
         digest: images.runner.digest,
       },
     },
+    ...(args['--resume-source-approval-id']
+      ? {
+          resume: {
+            sourceApprovalId: args['--resume-source-approval-id'],
+            sourceVersionId: args['--resume-source-version-id'],
+            sourceChecksum: args['--resume-source-checksum'],
+            executionTimestamp: args['--resume-execution-timestamp'],
+          },
+        }
+      : {}),
   };
   const raw = `${JSON.stringify(draft, null, 2)}\n`;
+  if (sourceApproval) {
+    assertResumeScope(draft, sourceApproval, {
+      approvalId: args['--resume-source-approval-id'],
+      versionId: args['--resume-source-version-id'],
+      checksum: args['--resume-source-checksum'],
+    });
+  }
   await validateRemoteApproval(raw, {
     approvalId,
     versionId: 'draft-version',
@@ -149,9 +188,25 @@ async function terraformOutputs() {
 
 async function main() {
   const args = parseDraftArguments(process.argv.slice(2));
+  let sourceApproval = null;
+  if (args['--resume-source-file']) {
+    const sourceRaw = await readFile(
+      path.resolve(args['--resume-source-file']),
+      'utf8',
+    );
+    sourceApproval = (
+      await validateRemoteApproval(sourceRaw, {
+        approvalId: args['--resume-source-approval-id'],
+        versionId: args['--resume-source-version-id'],
+        checksum: args['--resume-source-checksum'],
+        requireActiveWindow: false,
+      })
+    ).approval;
+  }
   const prepared = await buildCandidateApprovalDraft(
     args,
     await terraformOutputs(),
+    sourceApproval,
   );
   const outputPath = path.resolve(args['--output']);
   if (path.extname(outputPath) !== '.json') {

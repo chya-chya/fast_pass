@@ -139,6 +139,33 @@
         "runner": { "$ref": "#/definitions/image" }
       }
     },
+    "resume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceApprovalId",
+        "sourceVersionId",
+        "sourceChecksum",
+        "executionTimestamp"
+      ],
+      "properties": {
+        "sourceApprovalId": { "$ref": "#/definitions/safeId" },
+        "sourceVersionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "not": { "const": "null" }
+        },
+        "sourceChecksum": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "executionTimestamp": {
+          "type": "string",
+          "pattern": "^[0-9]{17}$"
+        }
+      }
+    },
     "infrastructure": {
       "type": "object",
       "additionalProperties": false,
