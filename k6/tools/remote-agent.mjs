@@ -373,6 +373,7 @@ async function main() {
           { ...env, ...run.env, RUN_ID: run.runId, SCENARIO: run.scenario },
           { requireExecution: true },
         ),
+        env,
       );
       await uploadRecoveryRecord(approval, recovery);
       process.stdout.write(`resume exact cleanup verified: ${run.runId}\n`);

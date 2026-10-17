@@ -327,16 +327,23 @@ export async function executeCleanup(config, plan) {
   }
 }
 
-export async function recoverRangeOwnedData(config) {
+export function assertRangeRecoveryAuthorized(
+  config,
+  authorization = process.env,
+) {
   if (
     config.isLocal ||
     config.fixtureSeedMode !== 'chunked-bulk' ||
-    process.env.REMOTE_APPROVAL_VERIFIED !== 'true' ||
-    process.env.REMOTE_CLEANUP_AUTHORIZED !== 'true' ||
-    process.env.ALLOW_TEST_DATA_DELETE !== 'true'
+    authorization.REMOTE_APPROVAL_VERIFIED !== 'true' ||
+    authorization.REMOTE_CLEANUP_AUTHORIZED !== 'true' ||
+    authorization.ALLOW_TEST_DATA_DELETE !== 'true'
   ) {
     throw new Error('remote range recovery is not authorized');
   }
+}
+
+export async function recoverRangeOwnedData(config, authorization = process.env) {
+  assertRangeRecoveryAuthorized(config, authorization);
   const fixture = {
     schemaVersion: 2,
     runId: config.runId,

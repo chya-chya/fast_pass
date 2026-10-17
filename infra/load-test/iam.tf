@@ -110,6 +110,24 @@ data "aws_iam_policy_document" "load_generator" {
     resources = ["${aws_s3_bucket.artifacts.arn}/*"]
   }
 
+  # S3 returns 403 rather than 404 for a missing object unless the caller can
+  # list that exact prefix. Resume uses HEAD only to distinguish an incomplete
+  # run from a sealed one, so keep the permission limited to run artifacts.
+  statement {
+    sid       = "DetectMissingRunArtifacts"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.artifacts.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values = [
+        "runs/summary/*",
+        "runs/raw/*",
+      ]
+    }
+  }
+
   statement {
     sid = "VerifyArtifactBucketControls"
     actions = [

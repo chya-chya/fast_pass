@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildCleanupPlan } from '../lib/cleanup.js';
+import { assertRangeRecoveryAuthorized } from '../tools/cleanup.mjs';
 
 function config() {
   return {
@@ -113,4 +114,27 @@ test('uses run ownership and compact Redis keys for a remote ID fixture', () => 
     !plan.redis.keys.includes('k6:cleanup-env:run:cleanup-run:requests'),
   );
   assert.equal(JSON.stringify(plan).includes('*'), false);
+});
+
+test('range recovery accepts the verified run environment passed by the agent', () => {
+  const remoteConfig = {
+    isLocal: false,
+    fixtureSeedMode: 'chunked-bulk',
+  };
+  const authorization = {
+    REMOTE_APPROVAL_VERIFIED: 'true',
+    REMOTE_CLEANUP_AUTHORIZED: 'true',
+    ALLOW_TEST_DATA_DELETE: 'true',
+  };
+  assert.doesNotThrow(() =>
+    assertRangeRecoveryAuthorized(remoteConfig, authorization),
+  );
+  assert.throws(
+    () =>
+      assertRangeRecoveryAuthorized(remoteConfig, {
+        ...authorization,
+        REMOTE_CLEANUP_AUTHORIZED: 'false',
+      }),
+    /not authorized/,
+  );
 });
