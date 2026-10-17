@@ -100,16 +100,16 @@ async function deleteIds(client, table, ids) {
   return result.rowCount;
 }
 
-export async function executeCleanup(config, plan) {
-  if (process.env.ALLOW_TEST_DATA_DELETE !== 'true') {
+export async function executeCleanup(config, plan, runtime = process.env) {
+  if (runtime.ALLOW_TEST_DATA_DELETE !== 'true') {
     throw new Error('ALLOW_TEST_DATA_DELETE=true is required');
   }
-  if (!config.isLocal && process.env.REMOTE_CLEANUP_AUTHORIZED !== 'true') {
+  if (!config.isLocal && runtime.REMOTE_CLEANUP_AUTHORIZED !== 'true') {
     throw new Error('REMOTE_CLEANUP_AUTHORIZED=true is required');
   }
-  const databaseUrl = process.env.AUDIT_DATABASE_URL;
-  const redisHost = process.env.AUDIT_REDIS_HOST || '';
-  const redisPort = Number(process.env.AUDIT_REDIS_PORT || '');
+  const databaseUrl = runtime.AUDIT_DATABASE_URL;
+  const redisHost = runtime.AUDIT_REDIS_HOST || '';
+  const redisPort = Number(runtime.AUDIT_REDIS_PORT || '');
   if (!databaseUrl) throw new Error('cleanup database connection is required');
   const parsedDatabaseUrl = new URL(databaseUrl);
   if (
@@ -124,7 +124,7 @@ export async function executeCleanup(config, plan) {
     config.isLocal !==
       (isLoopbackHostname(parsedDatabaseUrl.hostname) &&
         isLoopbackHostname(redisHost)) ||
-    (!config.isLocal && process.env.REMOTE_APPROVAL_VERIFIED !== 'true')
+    (!config.isLocal && runtime.REMOTE_APPROVAL_VERIFIED !== 'true')
   ) {
     throw new Error('cleanup network boundary does not match approval mode');
   }
@@ -362,7 +362,7 @@ export async function recoverRangeOwnedData(config, authorization = process.env)
     performanceId: fixtureId(config.runId, 'performance'),
   };
   const plan = buildCleanupPlan(config, fixture);
-  const deleted = await executeCleanup(config, plan);
+  const deleted = await executeCleanup(config, plan, authorization);
   return {
     schemaVersion: 1,
     runId: config.runId,

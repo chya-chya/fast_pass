@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildCleanupPlan } from '../lib/cleanup.js';
-import { assertRangeRecoveryAuthorized } from '../tools/cleanup.mjs';
+import {
+  assertRangeRecoveryAuthorized,
+  executeCleanup,
+} from '../tools/cleanup.mjs';
 
 function config() {
   return {
@@ -136,5 +139,21 @@ test('range recovery accepts the verified run environment passed by the agent', 
         REMOTE_CLEANUP_AUTHORIZED: 'false',
       }),
     /not authorized/,
+  );
+});
+
+test('cleanup reads authorization from the explicit verified runtime', async () => {
+  await assert.rejects(
+    () =>
+      executeCleanup(
+        { isLocal: false },
+        {},
+        {
+          ALLOW_TEST_DATA_DELETE: 'true',
+          REMOTE_CLEANUP_AUTHORIZED: 'true',
+          REMOTE_APPROVAL_VERIFIED: 'true',
+        },
+      ),
+    /database connection is required/,
   );
 });
