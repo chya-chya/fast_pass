@@ -100,7 +100,7 @@ async function deleteIds(client, table, ids) {
   return result.rowCount;
 }
 
-export async function executeCleanup(config, plan, runtime = process.env) {
+async function executeCleanupOnce(config, plan, runtime) {
   if (runtime.ALLOW_TEST_DATA_DELETE !== 'true') {
     throw new Error('ALLOW_TEST_DATA_DELETE=true is required');
   }
@@ -325,6 +325,22 @@ export async function executeCleanup(config, plan, runtime = process.env) {
     await pool.end().catch(() => undefined);
     redis.disconnect();
   }
+}
+
+export function isRetryableCleanupError(error) {
+  return error?.code === '40P01';
+}
+
+export async function executeCleanup(config, plan, runtime = process.env) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await executeCleanupOnce(config, plan, runtime);
+    } catch (error) {
+      if (!isRetryableCleanupError(error) || attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+  throw new Error('cleanup retry state is unreachable');
 }
 
 export function assertRangeRecoveryAuthorized(

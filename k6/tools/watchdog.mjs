@@ -244,9 +244,11 @@ function sleep(milliseconds) {
 }
 
 function monitored(input, promise) {
-  return promise.catch(() => {
+  return promise.catch((cause) => {
     const error = new Error('watchdog input unavailable');
     error.monitoringInput = input;
+    const code = String(cause?.code || '').toUpperCase();
+    error.monitoringErrorCode = /^[A-Z0-9_]{2,32}$/.test(code) ? code : null;
     throw error;
   });
 }
@@ -271,8 +273,9 @@ async function main() {
         ? { rejectUnauthorized: true }
         : false,
     max: 1,
-    connectionTimeoutMillis: 2000,
-    query_timeout: 2000,
+    connectionTimeoutMillis: 5000,
+    query_timeout: 5000,
+    statement_timeout: 5000,
   });
   const redis = new Redis({
     host: process.env.AUDIT_REDIS_HOST,
@@ -613,6 +616,7 @@ async function main() {
         state.lastMonitoringFailure = {
           at: new Date().toISOString(),
           input,
+          code: error?.monitoringErrorCode || null,
         };
         currentViolations = ['WATCHDOG_INPUT_UNAVAILABLE'];
         if (!preflightOnly) {
@@ -621,6 +625,7 @@ async function main() {
             `${JSON.stringify({
               at: state.lastMonitoringFailure.at,
               monitoringFailure: input,
+              monitoringErrorCode: state.lastMonitoringFailure.code,
               violations: currentViolations,
             })}\n`,
             { mode: 0o600 },

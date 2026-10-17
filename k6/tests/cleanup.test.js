@@ -5,6 +5,7 @@ import { buildCleanupPlan } from '../lib/cleanup.js';
 import {
   assertRangeRecoveryAuthorized,
   executeCleanup,
+  isRetryableCleanupError,
 } from '../tools/cleanup.mjs';
 
 function config() {
@@ -156,4 +157,10 @@ test('cleanup reads authorization from the explicit verified runtime', async () 
       ),
     /database connection is required/,
   );
+});
+
+test('cleanup retries only PostgreSQL deadlocks', () => {
+  assert.equal(isRetryableCleanupError({ code: '40P01' }), true);
+  assert.equal(isRetryableCleanupError({ code: '57014' }), false);
+  assert.equal(isRetryableCleanupError(new Error('deadlock detected')), false);
 });
