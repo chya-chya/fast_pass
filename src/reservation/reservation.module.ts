@@ -11,6 +11,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ReservationScheduler } from './reservation.scheduler';
 import { TestRunTrackerService } from './test-run-tracker.service';
 import { ReservationMetricsService } from './reservation-metrics.service';
+import { SchedulerLockService } from './scheduler-lock.service';
 
 @Module({
   imports: [PrismaModule],
@@ -18,6 +19,7 @@ import { ReservationMetricsService } from './reservation-metrics.service';
   providers: [
     ReservationService,
     ReservationScheduler,
+    SchedulerLockService,
     TestRunTrackerService,
     ReservationMetricsService,
     makeCounterProvider({
