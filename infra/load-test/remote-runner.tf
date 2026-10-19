@@ -51,6 +51,9 @@ resource "aws_ssm_document" "run_approved_load_test" {
         runCommand = [
           "set -euo pipefail",
           "[ \"$SSM_Execute\" = 'true' ]",
+          "exec 9>/run/fast-pass/remote-runner.lock",
+          "flock -n 9 || { echo 'another remote runner is active' >&2; exit 75; }",
+          "if docker inspect fast-pass-remote-runner >/dev/null 2>&1; then echo 'an existing remote runner container is active' >&2; exit 75; fi",
           "runtime_file=/run/fast-pass/remote-runtime.env",
           "approval_file=/run/fast-pass/remote-approval.json",
           "trap 'rm -f \"$runtime_file\" \"$approval_file\"' EXIT",
@@ -70,10 +73,10 @@ resource "aws_ssm_document" "run_approved_load_test" {
           "fixture_password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \\n')",
           "database_host=$(aws rds describe-db-instances --region '${var.aws_region}' --db-instance-identifier \"$database_id\" --query 'DBInstances[0].Endpoint.Address' --output text)",
           "database_port=$(aws rds describe-db-instances --region '${var.aws_region}' --db-instance-identifier \"$database_id\" --query 'DBInstances[0].Endpoint.Port' --output text)",
-          "{ printf 'REMOTE_APPROVAL_BUCKET=%s\\n' \"$SSM_ApprovalBucket\"; printf 'REMOTE_APPROVAL_ID=%s\\n' \"$SSM_ApprovalId\"; printf 'REMOTE_APPROVAL_VERSION_ID=%s\\n' \"$SSM_ApprovalVersionId\"; printf 'REMOTE_APPROVAL_CHECKSUM=%s\\n' \"$SSM_ApprovalChecksum\"; printf 'REMOTE_EXECUTION_TIMESTAMP=%s\\n' \"$SSM_ExecutionTimestamp\"; printf 'REMOTE_IMAGE_ROLE=%s\\n' \"$SSM_ImageRole\"; printf 'RUNNER_IMAGE_DIGEST=%s\\n' \"$approved_runner_digest\"; printf 'TEST_PREFLIGHT_TOKEN=%s\\n' \"$preflight_token\"; printf 'FIXTURE_USER_PASSWORD=%s\\n' \"$fixture_password\"; printf 'AUDIT_DATABASE_URL=postgresql://%s:%s@%s:%s/%s?sslmode=require\\n' \"$database_user\" \"$database_password\" \"$database_host\" \"$database_port\" \"$database_name\"; printf 'AWS_REGION=${var.aws_region}\\n'; printf 'NODE_EXTRA_CA_CERTS=/etc/ssl/certs/aws-rds-global-bundle.pem\\n'; printf 'PGSSLROOTCERT=/etc/ssl/certs/aws-rds-global-bundle.pem\\n'; } >\"$runtime_file\"",
+          "{ printf 'REMOTE_APPROVAL_BUCKET=%s\\n' \"$SSM_ApprovalBucket\"; printf 'REMOTE_APPROVAL_ID=%s\\n' \"$SSM_ApprovalId\"; printf 'REMOTE_APPROVAL_VERSION_ID=%s\\n' \"$SSM_ApprovalVersionId\"; printf 'REMOTE_APPROVAL_CHECKSUM=%s\\n' \"$SSM_ApprovalChecksum\"; printf 'REMOTE_EXECUTION_TIMESTAMP=%s\\n' \"$SSM_ExecutionTimestamp\"; printf 'REMOTE_IMAGE_ROLE=%s\\n' \"$SSM_ImageRole\"; printf 'RUNNER_IMAGE_DIGEST=%s\\n' \"$approved_runner_digest\"; printf 'TEST_PREFLIGHT_TOKEN=%s\\n' \"$preflight_token\"; printf 'FIXTURE_USER_PASSWORD=%s\\n' \"$fixture_password\"; printf 'AUDIT_DATABASE_URL=postgresql://%s:%s@%s:%s/%s?sslmode=require\\n' \"$database_user\" \"$database_password\" \"$database_host\" \"$database_port\" \"$database_name\"; printf 'RECOVERY_HOST_LOCK_PROOF=exclusive-v1\\n'; printf 'AWS_REGION=${var.aws_region}\\n'; printf 'NODE_EXTRA_CA_CERTS=/etc/ssl/certs/aws-rds-global-bundle.pem\\n'; printf 'PGSSLROOTCERT=/etc/ssl/certs/aws-rds-global-bundle.pem\\n'; } >\"$runtime_file\"",
           "chmod 0600 \"$runtime_file\"",
           "unset secret_json database_user database_password preflight_token fixture_password",
-          "docker run --rm --network host --read-only --cap-drop ALL --security-opt no-new-privileges --env-file \"$runtime_file\" --tmpfs /app/k6/results:rw,noexec,nosuid,size=1g,uid=10001,gid=10001,mode=0700 --tmpfs /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001,mode=0700 \"$runner_image\" --execute"
+          "docker run --rm --name fast-pass-remote-runner --network host --read-only --cap-drop ALL --security-opt no-new-privileges --env-file \"$runtime_file\" --tmpfs /app/k6/results:rw,noexec,nosuid,size=1g,uid=10001,gid=10001,mode=0700 --tmpfs /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001,mode=0700 \"$runner_image\" --execute"
         ]
       }
     }]

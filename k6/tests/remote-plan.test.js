@@ -26,7 +26,14 @@ test('builds the approved candidate sequence with three 100 percent confirmation
   );
   assert.equal(matrix.at(-1).scenario, 'soak');
   assert.ok(matrix.every((run) => run.imageRole === 'candidate'));
-  for (const scenario of ['capacity-vu', 'capacity-rps']) {
+  for (const scenario of [
+    'smoke',
+    'consistency-inventory',
+    'capacity-vu',
+    'capacity-rps',
+    'spike',
+    'soak',
+  ]) {
     const runs = matrix.filter((run) => run.scenario === scenario);
     assert.ok(runs.length > 0);
     assert.ok(
@@ -42,6 +49,15 @@ test('rejects matrix values that exceed explicit approval caps', async () => {
   assert.throws(
     () => buildRemoteExecutionMatrix(value, new Date('2099-01-01T00:01:00Z')),
     /exceeds approval/,
+  );
+});
+
+test('rejects qualifying runs too short for independent CloudWatch observations', async () => {
+  const value = await approval();
+  value.execution.rpsConfirmationSeconds = 60;
+  assert.throws(
+    () => buildRemoteExecutionMatrix(value, new Date('2099-01-01T00:01:00Z')),
+    /too short for 3 independent one-minute CloudWatch observations/,
   );
 });
 

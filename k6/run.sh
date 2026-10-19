@@ -83,6 +83,10 @@ if [[ ${watchdog_enabled} -eq 1 ]]; then
   fi
 fi
 
+if [[ "${REMOTE_APPROVAL_VERIFIED:-false}" == 'true' && "${FIXTURE_SEED_MODE:-}" == 'chunked-bulk' ]]; then
+  node k6/tools/fixture-activate.mjs --execute
+fi
+
 watchdog_status=0
 if [[ ${watchdog_enabled} -eq 1 ]]; then
   set +e

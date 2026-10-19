@@ -17,14 +17,16 @@ const repositoryRoot = path.resolve(
   '..',
 );
 const FINAL_FILES = Object.freeze([
-  'metadata.json',
   'fixture-manifest.json',
   'summary.json',
   'consistency-audit.json',
   'server-metrics.json',
   'report.md',
-  'checksums.sha256',
   'cleanup.json',
+  'checksums.sha256',
+  // metadata.json is the commit marker. It must be published only after every
+  // object referenced by checksums.sha256 is durable.
+  'metadata.json',
 ]);
 
 function sha256(value) {

@@ -104,7 +104,13 @@ async function main() {
         ? config.capacityRequestBudget
         : config.scenario === 'capacity-rps'
           ? config.rpsRequestBudget
-          : config.loadRequestBudget;
+          : ['spike', 'soak'].includes(config.scenario)
+            ? config.loadRequestBudget
+            : config.totalRequests;
+    const expectedAssignment =
+      approvedRequestBudget <= config.seatCount
+        ? 'deterministic_range_unique_seat'
+        : 'deterministic_range_modulo_seat';
     if (
       fixture?.schemaVersion !== 2 ||
       fixture.runId !== config.runId ||
@@ -112,7 +118,7 @@ async function main() {
       fixture.seatRange?.count !== config.seatCount ||
       fixture.requestManifest?.schemaVersion !== 3 ||
       fixture.requestManifest?.requestBudget !== approvedRequestBudget ||
-      fixture.requestManifest?.assignment !== 'deterministic_range_unique_seat'
+      fixture.requestManifest?.assignment !== expectedAssignment
     ) {
       throw new Error('remote fixture boundary is invalid');
     }
@@ -156,11 +162,14 @@ async function main() {
               COUNT(*) FILTER (WHERE "testRequestId" IS NULL)::int AS missing_request_id,
               COUNT(*) FILTER (
                 WHERE "seatId" <> $1 || '-seat-' || LPAD(
-                  SUBSTRING("testRequestId" FROM '([0-9]{6,8})$'), 8, '0'
+                  (MOD(
+                    SUBSTRING("testRequestId" FROM '([0-9]{6,8})$')::int,
+                    $2::int
+                  ))::text, 8, '0'
                 )
               )::int AS assignment_mismatch
        FROM "Reservation" WHERE "testRunId" = $1`,
-      [config.runId],
+      [config.runId, config.seatCount],
     );
     const duplicateRequests = await pool.query(
       `SELECT COUNT(*)::int AS count FROM (
@@ -175,7 +184,9 @@ async function main() {
         ? summary.metrics?.reservation_requests?.values?.count || 0
         : config.scenario === 'capacity-rps'
           ? summary.rpsLoad?.startedReservationRequests || 0
-          : summary.longRunLoad?.startedReservationRequests || 0,
+          : ['spike', 'soak'].includes(config.scenario)
+            ? summary.longRunLoad?.startedReservationRequests || 0
+            : summary.metrics?.reservation_requests?.values?.count || 0,
     );
     const reasons = [];
     if (!drained) reasons.push('DRAIN_TIMEOUT');

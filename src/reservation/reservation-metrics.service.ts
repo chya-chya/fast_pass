@@ -93,6 +93,7 @@ export class ReservationMetricsService
       this.enqueueCounter.labels(status).inc(0);
       this.processedCounter.labels(status).inc(0);
     }
+    if (!this.isQueueMetricsCollector()) return;
     await this.refreshQueueMetrics();
     this.refreshTimer = setInterval(
       () => void this.refreshQueueMetrics(),
@@ -238,5 +239,12 @@ export class ReservationMetricsService
       configured <= 100000
       ? configured
       : 10000;
+  }
+
+  private isQueueMetricsCollector(): boolean {
+    return (
+      process.env.RESERVATION_QUEUE_METRICS_COLLECTOR !== 'false' &&
+      (process.env.NODE_APP_INSTANCE || process.env.pm_id || '0') === '0'
+    );
   }
 }

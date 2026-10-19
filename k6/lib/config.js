@@ -290,7 +290,8 @@ export function loadConfig(
   const soakScenario = scenario === 'soak';
   const longRunScenario = spikeScenario || soakScenario;
   const bulkFixtureScenario =
-    longRunScenario || (capacityScenario && !target.isLocal);
+    longRunScenario ||
+    (env.FIXTURE_SEED_MODE === 'chunked-bulk' && !target.isLocal);
   const capacityProfile = env.CAPACITY_PROFILE || 'unique-seat';
   if (capacityScenario && !CAPACITY_PROFILES.includes(capacityProfile)) {
     errors.push(
@@ -1012,10 +1013,14 @@ export function loadConfig(
     ? capacityRequestBudget
     : capacityRpsScenario
       ? rpsRequestBudget
-      : loadRequestBudget;
+      : longRunScenario
+        ? loadRequestBudget
+        : rebookingScenario
+          ? 2
+          : vus;
   const fixtureCapacityPlan = bulkFixtureScenario
     ? buildFixtureCapacityPlan({
-        requestBudget: fixtureRequestBudget,
+        requestBudget: Math.max(fixtureRequestBudget, seatCount),
         userCount,
         databaseBytesPerRequest: fixtureDatabaseBytesPerRequest,
         redisBytesPerRequest: fixtureRedisBytesPerRequest,

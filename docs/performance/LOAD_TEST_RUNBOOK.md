@@ -111,13 +111,18 @@ required TTL = setup allowance + load duration + drain allowance
 
 ## 자동 watchdog과 중단 기준
 
-기본 polling은 2초, 연속 위반 횟수는 3회다. 한 번의 순간값은 기록하되 자동 중단은 연속 위반으로 결정한다. 중단 시 watchdog은 `.watchdog.json.tmp`를 먼저 원자적으로 기록하고 k6에 `SIGINT`를 보낸다. runner는 결과를 `ABORTED/WATCHDOG_ABORTED`로 finalize하며 중단 사유, 최대값, polling 설정과 표본 수를 `server-metrics.json` 및 `metadata.json`에 보존한다.
+기본 polling은 2초, 연속 위반 횟수는 3회다. 한 번의 순간값은 기록하되 자동 중단은 연속 위반으로 결정한다. RDS·Redis CPU/메모리는 CloudWatch의 서로 다른 1분 datapoint만 연속 표본으로 계산하며, 캐시를 2초마다 반복 읽은 값은 횟수를 늘리거나 초기화하지 않는다. 따라서 qualification Run은 최소 `연속 위반 횟수 × 60초`여야 하며, 종료 시 독립 datapoint가 부족하면 `WATCHDOG_CLOUDWATCH_COVERAGE_INSUFFICIENT`로 무효 처리한다. 중단 시 watchdog은 `.watchdog.json.tmp`를 먼저 원자적으로 기록하고 k6에 `SIGINT`를 보낸다. runner는 결과를 `ABORTED/WATCHDOG_ABORTED`로 finalize하며 중단 사유, 최대값, polling 설정과 표본 수를 `server-metrics.json` 및 `metadata.json`에 보존한다.
+
+EC2 CPU credit은 기본 모니터링의 5분 datapoint를 사용한다. preflight는 현재 보수적 잔액이 기준 미만이면 즉시 거부한다. Run 중에는 마지막 실제 최솟값에서 `t3.small`의 2 vCPU가 분당 최대 2 credit을 모두 소비하고 credit 적립은 없다고 가정한 하한을 2초마다 계산한다. 이 하한이 3회 연속 기준 미만이면 중단하므로 5분짜리 다음 datapoint를 기다리지 않으며, 실제 잔액보다 낙관적으로 판단하지 않는다.
 
 | 조건                 | 초기 기준                                  | 자동 동작                                                      |
 | -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
 | 예상하지 않은 오류   | delta 오류율 > 0.1%, 3회                   | watchdog 중단; k6 `unexpected_error_rate`도 6초 이후 즉시 중단 |
 | ALB unhealthy target | 1개 이상, 3회                              | 원격 adapter가 k6 중단; adapter 없으면 preflight 거부          |
 | DB connection        | `numbackends / max_connections > 85%`, 3회 | watchdog 중단                                                  |
+| RDS CPU              | 서로 다른 1분 datapoint가 기준 초과, 3회   | watchdog 중단; 표본 부족 qualification은 무효                  |
+| Redis CPU·메모리     | 서로 다른 1분 datapoint가 기준 초과, 3회   | watchdog 중단; 표본 부족 qualification은 무효                  |
+| EC2 CPU credit       | 2 vCPU 최대 소모 기준 보수적 하한, 3회     | preflight 즉시 거부 또는 watchdog 중단                         |
 | Redis eviction       | baseline 이후 1개 이상                     | 3회 확인 후 중단                                               |
 | Redis/관측 timeout   | 입력 조회 실패 3회                         | `WATCHDOG_INPUT_UNAVAILABLE`로 중단                            |
 | event-loop lag       | 200 ms 초과, 3회                           | watchdog 중단                                                  |

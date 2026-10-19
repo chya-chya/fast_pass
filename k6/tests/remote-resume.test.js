@@ -3,9 +3,13 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  assertNoLegacyRecoveryEvidence,
   assertResumeScope,
+  validateRecoveryIntent,
+  validateRemoteChecksumSet,
   validateSealedRunArtifacts,
 } from '../tools/remote-resume.mjs';
+import { createHash } from 'node:crypto';
 
 const exampleUrl = new URL(
   '../remote/remote-approval.example.json',
@@ -123,5 +127,70 @@ test('sealed source run is reusable only with verified exact cleanup', async () 
         sourceApproval: source,
       }),
     /cleanup proof/,
+  );
+});
+
+test('rejects a finalized artifact set assembled from different upload generations', () => {
+  const names = [
+    'metadata.json',
+    'fixture-manifest.json',
+    'summary.json',
+    'consistency-audit.json',
+    'server-metrics.json',
+    'report.md',
+    'cleanup.json',
+  ];
+  const objects = Object.fromEntries(names.map((name) => [name, `${name}\n`]));
+  const checksum = (value) => createHash('sha256').update(value).digest('hex');
+  objects['checksums.sha256'] = `${names
+    .map((name) => `${checksum(objects[name])}  ${name}`)
+    .join('\n')}\n`;
+  assert.doesNotThrow(() => validateRemoteChecksumSet(objects));
+  objects['summary.json'] = 'new generation\n';
+  assert.throws(
+    () => validateRemoteChecksumSet(objects),
+    /generation mismatch/,
+  );
+});
+
+test('recovery intent is bound to approval identity and immutable application image', async () => {
+  const { current } = await approvals();
+  const run = {
+    runId: 'resume-run',
+    scenario: 'smoke',
+    imageRole: 'candidate',
+  };
+  const identity = {
+    approvalId: current.approvalId,
+    versionId: 'current-version',
+    checksum: 'e'.repeat(64),
+    executionTimestamp: current.resume.executionTimestamp,
+  };
+  const intent = {
+    runId: run.runId,
+    testEnvId: current.environment.id,
+    scenario: run.scenario,
+    fixture: { kind: 'deterministic-v1' },
+    remoteApproval: { ...identity },
+    immutableImages: {
+      role: run.imageRole,
+      applicationDigest: current.images.candidate.digest,
+    },
+  };
+  assert.equal(validateRecoveryIntent(intent, run, current, identity), true);
+  intent.remoteApproval.checksum = 'f'.repeat(64);
+  assert.throws(
+    () => validateRecoveryIntent(intent, run, current, identity),
+    /not reusable/,
+  );
+});
+
+test('legacy metadata or raw evidence cannot authorize deterministic cleanup', () => {
+  assert.doesNotThrow(() =>
+    assertNoLegacyRecoveryEvidence(false, 'resume-run'),
+  );
+  assert.throws(
+    () => assertNoLegacyRecoveryEvidence(true, 'resume-run'),
+    /legacy evidence.*manual intervention/,
   );
 });

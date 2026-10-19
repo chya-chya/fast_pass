@@ -15,6 +15,9 @@ const FINAL_FILES = Object.freeze([
   'checksums.sha256',
   'cleanup.json',
 ]);
+const CHECKSUM_FILES = Object.freeze(
+  FINAL_FILES.filter((name) => name !== 'checksums.sha256'),
+);
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -29,6 +32,31 @@ function canonical(value) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function validateRemoteChecksumSet(objects) {
+  const lines = objects['checksums.sha256']?.trim().split('\n') || [];
+  const entries = lines.map((line) =>
+    /^([a-f0-9]{64})  ([A-Za-z0-9.-]+)$/.exec(line),
+  );
+  if (
+    entries.some((entry) => !entry) ||
+    entries.length !== CHECKSUM_FILES.length
+  ) {
+    throw new Error('remote checksum manifest schema is invalid');
+  }
+  const remaining = new Set(CHECKSUM_FILES);
+  for (const [, expected, name] of entries) {
+    if (!remaining.delete(name) || typeof objects[name] !== 'string') {
+      throw new Error('remote checksum manifest contains an unexpected file');
+    }
+    if (sha256(objects[name]) !== expected) {
+      throw new Error(`remote artifact generation mismatch for ${name}`);
+    }
+  }
+  if (remaining.size !== 0) {
+    throw new Error('remote checksum manifest is incomplete');
+  }
 }
 
 function resumeScope(approval) {
@@ -191,9 +219,29 @@ export async function inspectSealedRemoteRun({
         ? metadataRaw
         : await readVerifiedObject(region, bucket, `${prefix}/${name}`);
     if (raw === null) {
-      throw new Error(`${run.runId} has a partial finalized artifact set`);
+      return false;
     }
     objects[name] = raw;
+  }
+  try {
+    validateRemoteChecksumSet(objects);
+  } catch (error) {
+    if (
+      /remote checksum manifest|artifact generation mismatch/.test(
+        error.message,
+      )
+    ) {
+      return false;
+    }
+    throw error;
+  }
+  if (
+    metadata.execution !== 'COMPLETED' ||
+    metadata.preflight !== 'VERIFIED' ||
+    metadata.audit?.pass !== true ||
+    metadata.cleanup?.status !== 'VERIFIED'
+  ) {
+    return false;
   }
   validateSealedRunArtifacts({
     metadata,
@@ -206,9 +254,51 @@ export async function inspectSealedRemoteRun({
   return true;
 }
 
-export async function remoteRunHasEvidence(run, approval) {
+export function validateRecoveryIntent(intent, run, approval, currentIdentity) {
+  const lineage = intent.remoteApproval || {};
+  const approvalMatches =
+    (lineage.approvalId === currentIdentity.approvalId &&
+      lineage.versionId === currentIdentity.versionId &&
+      lineage.checksum === currentIdentity.checksum &&
+      lineage.executionTimestamp === currentIdentity.executionTimestamp) ||
+    (approval.resume &&
+      lineage.approvalId === approval.resume.sourceApprovalId &&
+      lineage.versionId === approval.resume.sourceVersionId &&
+      lineage.checksum === approval.resume.sourceChecksum &&
+      lineage.executionTimestamp === approval.resume.executionTimestamp);
+  if (
+    intent.runId !== run.runId ||
+    intent.testEnvId !== approval.environment.id ||
+    intent.scenario !== run.scenario ||
+    intent.fixture?.kind !== 'deterministic-v1' ||
+    intent.immutableImages?.role !== run.imageRole ||
+    intent.immutableImages?.applicationDigest !==
+      approval.images[run.imageRole].digest ||
+    !approvalMatches
+  ) {
+    throw new Error(`${run.runId} recovery intent is not reusable`);
+  }
+  return true;
+}
+
+export function assertNoLegacyRecoveryEvidence(hasLegacyEvidence, runId) {
+  if (hasLegacyEvidence) {
+    throw new Error(
+      `${runId} has legacy evidence without a deterministic recovery intent; manual intervention is required`,
+    );
+  }
+}
+
+export async function remoteRunHasEvidence(run, approval, currentIdentity) {
   const region = approval.environment.region;
   const bucket = approval.environment.artifactBucket;
+  const intentKey = `runs/recovery/${run.runId}/intent.json`;
+  const intentRaw = await readVerifiedObject(region, bucket, intentKey);
+  if (intentRaw !== null) {
+    const intent = JSON.parse(intentRaw);
+    validateRecoveryIntent(intent, run, approval, currentIdentity);
+    return true;
+  }
   for (const key of [
     `runs/summary/${run.runId}/metadata.json`,
     `runs/raw/${run.runId}/server-timeseries.ndjson.gz`,
@@ -222,10 +312,11 @@ export async function remoteRunHasEvidence(run, approval) {
         '--key',
         key,
       ]);
-      return true;
+      assertNoLegacyRecoveryEvidence(true, run.runId);
     } catch (error) {
       if (!isMissing(error)) throw error;
     }
   }
+  assertNoLegacyRecoveryEvidence(false, run.runId);
   return false;
 }

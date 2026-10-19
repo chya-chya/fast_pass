@@ -67,6 +67,15 @@ function buildImageRuns(approval, imageRole, timestamp) {
   const nextId = (purpose) =>
     `${prefix}-${timestamp}-${String(++sequence).padStart(2, '0')}-${purpose}`;
   const runs = [];
+  const rangeFixtureEnv = {
+    FIXTURE_SEED_MODE: 'chunked-bulk',
+    FIXTURE_MAX_USERS: String(limits.maxFixtureUsers),
+    FIXTURE_MAX_SEATS: String(limits.maxFixtureSeats),
+    FIXTURE_MAX_DATABASE_ROWS: String(limits.maxFixtureDatabaseRows),
+    FIXTURE_MAX_DATABASE_BYTES: String(limits.maxFixtureDatabaseBytes),
+    FIXTURE_MAX_REDIS_BYTES: String(limits.maxFixtureRedisBytes),
+    FIXTURE_MAX_STORAGE_BYTES: String(limits.maxFixtureDatabaseBytes),
+  };
 
   pushIfAllowed(runs, allowed, {
     runId: nextId('smoke'),
@@ -74,6 +83,7 @@ function buildImageRuns(approval, imageRole, timestamp) {
     purpose: 'NON_QUALIFYING_SMOKE',
     qualifying: false,
     env: {
+      ...rangeFixtureEnv,
       VU: String(profile.smokeVus),
       USER_COUNT: String(profile.smokeVus),
       SEAT_COUNT: String(Math.max(5, profile.smokeVus)),
@@ -88,6 +98,7 @@ function buildImageRuns(approval, imageRole, timestamp) {
     purpose: 'SCALED_CONSISTENCY',
     qualifying: false,
     env: {
+      ...rangeFixtureEnv,
       VU: String(profile.consistencyVus),
       USER_COUNT: String(profile.consistencyVus),
       SEAT_COUNT: String(profile.consistencySeats),
@@ -96,15 +107,6 @@ function buildImageRuns(approval, imageRole, timestamp) {
     approvedRequests: profile.consistencyVus,
   });
 
-  const rangeFixtureEnv = {
-    FIXTURE_SEED_MODE: 'chunked-bulk',
-    FIXTURE_MAX_USERS: String(limits.maxFixtureUsers),
-    FIXTURE_MAX_SEATS: String(limits.maxFixtureSeats),
-    FIXTURE_MAX_DATABASE_ROWS: String(limits.maxFixtureDatabaseRows),
-    FIXTURE_MAX_DATABASE_BYTES: String(limits.maxFixtureDatabaseBytes),
-    FIXTURE_MAX_REDIS_BYTES: String(limits.maxFixtureRedisBytes),
-    FIXTURE_MAX_STORAGE_BYTES: String(limits.maxFixtureDatabaseBytes),
-  };
   const vuEnv = {
     ...rangeFixtureEnv,
     CAPACITY_VU_STAGES: profile.capacityVuStages.join(','),
@@ -367,6 +369,14 @@ export function buildRemoteExecutionMatrix(
     buildImageRuns(approval, role, timestamp),
   );
   for (const run of matrix) {
+    if (
+      run.qualifying &&
+      run.durationSeconds < approval.abort.consecutiveSamples * 60
+    ) {
+      throw new Error(
+        `${run.runId} is too short for ${approval.abort.consecutiveSamples} independent one-minute CloudWatch observations`,
+      );
+    }
     if (
       run.durationSeconds > approval.limits.maxDurationSeconds ||
       run.approvedRequests > approval.limits.maxRequests ||

@@ -71,32 +71,32 @@
 
 ## 지표 계약
 
-| 지표                                           | 종류      | label             | 의미                                                                                            |
-| ---------------------------------------------- | --------- | ----------------- | ----------------------------------------------------------------------------------------------- |
-| `reservation_request_total`                    | Counter   | worker 기본 label | 예약 API에 들어온 요청 수                                                                       |
-| `reservation_request_outcome_total`            | Counter   | `outcome`         | `accepted`, `expected_conflict`, `unexpected_failure`                                           |
-| `reservation_lua_result_total`                 | Counter   | `result`          | 좌석 상태 Lua 결과 `OK`, `FAIL`, `MISS`, `WAIT`, `ERROR`, `UNKNOWN`                             |
-| `reservation_queue_total`                      | Counter   | `status`          | Redis Stream enqueue 성공·실패                                                                  |
-| `reservation_processed_total`                  | Counter   | `status`          | scheduler 처리 성공·실패                                                                        |
-| `reservation_queue_depth_messages`             | Gauge     | worker 기본 label | 아직 `XDEL`되지 않은 stream entry 수. 여러 worker에서 같은 Redis 값을 읽으므로 합산하지 않는다. |
-| `reservation_queue_processing_messages`        | Gauge     | worker 기본 label | consumer group PEL 수                                                                           |
-| `reservation_queue_retry_messages`             | Gauge     | worker 기본 label | delivery count가 2 이상인 PEL 수                                                                |
-| `reservation_queue_dlq_messages`               | Gauge     | worker 기본 label | DLQ stream entry 수                                                                             |
-| `reservation_queue_oldest_message_age_seconds` | Gauge     | worker 기본 label | 가장 오래된 미종결 stream entry의 나이                                                          |
-| `reservation_queue_metrics_collection_up`      | Gauge     | worker 기본 label | 마지막 Redis 지표 수집 성공 여부                                                                |
-| `reservation_queue_retry_scan_complete`        | Gauge     | worker 기본 label | retry gauge가 전체 PEL을 스캔했는지 여부                                                        |
-| `reservation_persistence_latency_seconds`      | Histogram | worker 기본 label | Redis `XADD` 시각부터 DB commit 또는 idempotent reconciliation까지                              |
-| `reservation_scheduler_batch_size`             | Histogram | worker 기본 label | scheduler 1회 실행의 성공 처리 건수                                                             |
-| `reservation_scheduler_batch_duration_seconds` | Histogram | worker 기본 label | scheduler batch 실행 시간                                                                       |
+| 지표                                           | 종류      | label             | 의미                                                                           |
+| ---------------------------------------------- | --------- | ----------------- | ------------------------------------------------------------------------------ |
+| `reservation_request_total`                    | Counter   | worker 기본 label | 예약 API에 들어온 요청 수                                                      |
+| `reservation_request_outcome_total`            | Counter   | `outcome`         | `accepted`, `expected_conflict`, `unexpected_failure`                          |
+| `reservation_lua_result_total`                 | Counter   | `result`          | 좌석 상태 Lua 결과 `OK`, `FAIL`, `MISS`, `WAIT`, `ERROR`, `UNKNOWN`            |
+| `reservation_queue_total`                      | Counter   | `status`          | Redis Stream enqueue 성공·실패                                                 |
+| `reservation_processed_total`                  | Counter   | `status`          | scheduler 처리 성공·실패                                                       |
+| `reservation_queue_depth_messages`             | Gauge     | worker 기본 label | 아직 `XDEL`되지 않은 stream entry 수. 지정된 단일 수집 worker의 값을 사용한다. |
+| `reservation_queue_processing_messages`        | Gauge     | worker 기본 label | consumer group PEL 수                                                          |
+| `reservation_queue_retry_messages`             | Gauge     | worker 기본 label | delivery count가 2 이상인 PEL 수                                               |
+| `reservation_queue_dlq_messages`               | Gauge     | worker 기본 label | DLQ stream entry 수                                                            |
+| `reservation_queue_oldest_message_age_seconds` | Gauge     | worker 기본 label | 가장 오래된 미종결 stream entry의 나이                                         |
+| `reservation_queue_metrics_collection_up`      | Gauge     | worker 기본 label | 마지막 Redis 지표 수집 성공 여부                                               |
+| `reservation_queue_retry_scan_complete`        | Gauge     | worker 기본 label | retry gauge가 전체 PEL을 스캔했는지 여부                                       |
+| `reservation_persistence_latency_seconds`      | Histogram | worker 기본 label | Redis `XADD` 시각부터 DB commit 또는 idempotent reconciliation까지             |
+| `reservation_scheduler_batch_size`             | Histogram | worker 기본 label | scheduler 1회 실행의 성공 처리 건수                                            |
+| `reservation_scheduler_batch_duration_seconds` | Histogram | worker 기본 label | scheduler batch 실행 시간                                                      |
 
-모든 앱 지표에는 `host`, `app_instance`, `pm_id`, `pid`, `worker_generation`이 붙는다. 사용자·좌석·예약·Run ID는 label로 사용하지 않는다. `reservation_queue_retry_scan_complete=0`이면 retry 값은 하한일 뿐이므로 qualification을 중단한다.
+모든 앱 지표에는 `host`, `app_instance`, `pm_id`, `pid`, `worker_generation`이 붙는다. 사용자·좌석·예약·Run ID는 label로 사용하지 않는다. Redis queue gauge의 고비용 PEL scan은 지정된 한 인스턴스의 PM2 worker 0만 수행하며, 다른 13개 worker endpoint의 process·business metric 수집은 유지한다. `reservation_queue_retry_scan_complete=0`이면 retry 값은 하한일 뿐이므로 qualification을 중단한다.
 
 Node 기본 지표에서 `nodejs_eventloop_lag_seconds`, `process_resident_memory_bytes`, `nodejs_heap_size_used_bytes`, `process_start_time_seconds`를 사용한다. PM2 exporter에서는 `pm2_cpu`, `pm2_memory`, `pm2_uptime`, `pm2_restarts`, `pm2_loop_delay`를 관찰한다.
 
 ## PM2 집계 규칙
 
 - Counter는 worker별 `rate`/`increase`에서 reset을 보정한 다음 합산한다.
-- queue gauge는 모든 worker가 같은 Redis 상태를 읽으므로 `max`를 사용하며 합산하지 않는다.
+- queue gauge는 지정된 단일 수집 worker의 값을 `max`로 선택하며 합산하지 않는다.
 - RSS와 heap은 전체 합계와 worker 최댓값을 함께 본다.
 - Event-loop lag와 오류율은 전체 집계와 worker 최악값을 함께 본다.
 - Histogram bucket은 `le`별로 합산한 뒤 전체 분위수를 다시 계산한다. worker별 p95를 평균내지 않는다.
@@ -125,7 +125,7 @@ Node 기본 지표에서 `nodejs_eventloop_lag_seconds`, `process_resident_memor
 | Heap 합계 / 최댓값        | `sum(nodejs_heap_size_used_bytes)`, `max(nodejs_heap_size_used_bytes)`                                                                                                |
 | PM2 CPU·메모리            | `sum(pm2_cpu)`, `sum(pm2_memory)`                                                                                                                                     |
 | PM2 재시작                | `sum(changes(pm2_uptime[5m]))`과 `sum(increase(pm2_restarts[5m]))`를 함께 확인                                                                                        |
-| 수집 완전성               | `min(reservation_queue_metrics_collection_up)`, `min(reservation_queue_retry_scan_complete)`                                                                          |
+| 수집 완전성               | `max(reservation_queue_metrics_collection_up)`, `max(reservation_queue_retry_scan_complete)`                                                                          |
 
 Grafana dashboard는 API, queue, persistence, scheduler, Node/PM2, DB, Redis의 여섯 행으로 나눈다. 공통 annotation에는 Run ID, Git SHA, cache profile, tracing 조건과 부하 시작·종료 시각을 기록하되 Run ID를 Prometheus metric label로 추가하지 않는다.
 

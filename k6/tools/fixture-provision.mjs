@@ -98,7 +98,7 @@ async function main() {
   if (config.isLocal || config.fixtureSeedMode !== 'chunked-bulk') {
     throw new Error('chunked fixture provisioning is remote-only');
   }
-  if (config.capacityProfile !== 'unique-seat') {
+  if (config.capacityProfile && config.capacityProfile !== 'unique-seat') {
     throw new Error('chunked fixture provisioning requires unique-seat mode');
   }
   const requestBudget =
@@ -106,9 +106,19 @@ async function main() {
       ? config.capacityRequestBudget
       : config.scenario === 'capacity-rps'
         ? config.rpsRequestBudget
-        : config.loadRequestBudget;
-  if (!Number.isInteger(requestBudget) || requestBudget !== config.seatCount) {
-    throw new Error('chunked fixture request budget does not match seat range');
+        : ['spike', 'soak'].includes(config.scenario)
+          ? config.loadRequestBudget
+          : config.totalRequests;
+  if (
+    !Number.isInteger(requestBudget) ||
+    (['capacity-vu', 'capacity-rps', 'spike', 'soak'].includes(
+      config.scenario,
+    ) &&
+      requestBudget !== config.seatCount)
+  ) {
+    throw new Error(
+      'chunked fixture request budget is incompatible with seat range',
+    );
   }
   const password = process.env.FIXTURE_USER_PASSWORD || '';
   if (!/^[\x21-\x7E]{32,128}$/.test(password)) {
@@ -268,7 +278,10 @@ async function main() {
       requestManifest: {
         schemaVersion: 3,
         requestBudget,
-        assignment: 'deterministic_range_unique_seat',
+        assignment:
+          requestBudget <= config.seatCount
+            ? 'deterministic_range_unique_seat'
+            : 'deterministic_range_modulo_seat',
       },
     };
     const stored = await redis.set(
@@ -287,7 +300,7 @@ async function main() {
     await redis.hset(
       `${base}state`,
       'producer',
-      'OPEN',
+      'PREPARED',
       'cache_profile',
       config.cacheProfile,
       'createdAt',

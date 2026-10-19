@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig } from '../lib/config.js';
 import { fetchVersionedRemoteApproval } from './remote-approval-s3.mjs';
 import { verifyLocalGates } from './remote-gates.mjs';
-import { inspectRemoteInfrastructure } from './remote-inventory.mjs';
+import { awsJson, inspectRemoteInfrastructure } from './remote-inventory.mjs';
 import { buildRemoteExecutionMatrix } from './remote-plan.mjs';
 import { verifyRemoteStorage } from './remote-storage.mjs';
 import { recoverRangeOwnedData } from './cleanup.mjs';
@@ -103,6 +103,55 @@ async function verifyPostRecoveryReadiness(env) {
   throw new Error('post-recovery preflight failed after six attempts');
 }
 
+export function isGeneratorRetired(description, sourceInstanceId) {
+  const instances = (description.Reservations || []).flatMap(
+    (reservation) => reservation.Instances || [],
+  );
+  if (instances.length === 0) return true;
+  const source = instances.find(
+    (instance) => instance.InstanceId === sourceInstanceId,
+  );
+  return ['stopped', 'terminated'].includes(source?.State?.Name);
+}
+
+async function verifySourceGeneratorRetired(approval, sourceApproval) {
+  const sourceId = sourceApproval?.environment?.loadGeneratorInstanceId;
+  const currentId = approval.environment.loadGeneratorInstanceId;
+  if (!sourceId || sourceId === currentId) return false;
+  let description;
+  try {
+    description = await awsJson(approval.environment.region, [
+      'ec2',
+      'describe-instances',
+      '--instance-ids',
+      sourceId,
+    ]);
+  } catch (error) {
+    if (/InvalidInstanceID\.NotFound/.test(error?.message || '')) return true;
+    throw error;
+  }
+  return isGeneratorRetired(description, sourceId);
+}
+
+export function hasExclusiveHostFence(runtime = process.env) {
+  return runtime.RECOVERY_HOST_LOCK_PROOF === 'exclusive-v1';
+}
+
+export function assertRecoveryProducerFence({
+  sameGenerator,
+  hostFence,
+  sourceRetired,
+}) {
+  if (
+    (sameGenerator && hostFence !== true) ||
+    (!sameGenerator && sourceRetired !== true)
+  ) {
+    throw new Error(
+      'resume rejected: previous load generator producer is not fenced',
+    );
+  }
+}
+
 export function buildRunEnvironment(baseEnv, run) {
   return {
     ...baseEnv,
@@ -181,6 +230,7 @@ function commonRunEnvironment(approval, verified, inventory, imageRole) {
     ),
     REMOTE_CLEANUP_AUTHORIZED: approval.cleanup.authorized ? 'true' : 'false',
     ALLOW_TEST_DATA_DELETE: approval.cleanup.authorized ? 'true' : 'false',
+    RECOVERY_PRODUCER_FENCED: 'false',
     REMOTE_PROFILE_SHA256: hash({
       scenarios: approval.scenarios,
       limits: approval.limits,
@@ -256,7 +306,9 @@ async function uploadRecoveryRecord(approval, record) {
         '--bucket',
         approval.environment.artifactBucket,
         '--key',
-        `runs/recovery/${record.runId}/${record.executedAt.replaceAll(':', '-')}.json`,
+        record.mode === 'execution-intent'
+          ? `runs/recovery/${record.runId}/intent.json`
+          : `runs/recovery/${record.runId}/${record.executedAt.replaceAll(':', '-')}.json`,
         '--body',
         filePath,
         '--server-side-encryption',
@@ -274,6 +326,30 @@ async function uploadRecoveryRecord(approval, record) {
   }
 }
 
+export function assertCleanupDrainProof(audit, runId) {
+  if (
+    audit?.runId !== runId ||
+    audit.drain?.timedOut !== false ||
+    audit.queues?.pending !== 0 ||
+    audit.queues?.processing !== 0 ||
+    Number(audit.counters?.worker_in_flight) !== 0
+  ) {
+    throw new Error(`${runId} has no verified producer and worker drain proof`);
+  }
+}
+
+async function verifyCleanupDrainProof(env) {
+  const auditPath = path.join(
+    repositoryRoot,
+    'k6',
+    'results',
+    env.RUN_ID,
+    'consistency-audit.json',
+  );
+  const audit = JSON.parse(await readFile(auditPath, 'utf8'));
+  assertCleanupDrainProof(audit, env.RUN_ID);
+}
+
 async function executeRun(run, baseEnv) {
   const env = buildRunEnvironment(baseEnv, run);
   loadConfig(env, { requireExecution: true });
@@ -283,6 +359,12 @@ async function executeRun(run, baseEnv) {
     throw new Error(
       `${run.runId} monitoring preflight failed before k6 started`,
     );
+  }
+  try {
+    await verifyCleanupDrainProof(env);
+  } catch (error) {
+    await uploadIncomplete(env);
+    throw error;
   }
   const cleanupDryRun = await execute(
     'node',
@@ -388,7 +470,28 @@ async function main() {
     await verifyRemoteStorage(approval);
     const env = commonRunEnvironment(approval, verified, inventory, imageRole);
     let recovered = false;
-    if (approval.resume && (await remoteRunHasEvidence(run, approval))) {
+    if (
+      approval.resume &&
+      (await remoteRunHasEvidence(run, approval, {
+        approvalId: approval.approvalId,
+        versionId: verified.versionId,
+        checksum: verified.checksum,
+        executionTimestamp: process.env.REMOTE_EXECUTION_TIMESTAMP,
+      }))
+    ) {
+      const sameGenerator =
+        sourceApproval?.environment?.loadGeneratorInstanceId ===
+        approval.environment.loadGeneratorInstanceId;
+      const hostFence = sameGenerator && hasExclusiveHostFence();
+      const sourceRetired =
+        !sameGenerator &&
+        (await verifySourceGeneratorRetired(approval, sourceApproval));
+      assertRecoveryProducerFence({
+        sameGenerator,
+        hostFence,
+        sourceRetired,
+      });
+      env.RECOVERY_PRODUCER_FENCED = 'true';
       const recovery = await recoverRangeOwnedData(
         loadConfig(
           { ...env, ...run.env, RUN_ID: run.runId, SCENARIO: run.scenario },
@@ -403,6 +506,30 @@ async function main() {
     if (recovered) {
       await verifyPostRecoveryReadiness(buildRunEnvironment(env, run));
     }
+    await uploadRecoveryRecord(approval, {
+      schemaVersion: 1,
+      runId: run.runId,
+      testEnvId: approval.environment.id,
+      scenario: run.scenario,
+      mode: 'execution-intent',
+      executedAt: new Date().toISOString(),
+      fixture: {
+        kind: 'deterministic-v1',
+        userCount: Number(run.env.USER_COUNT),
+        seatCount: Number(run.env.SEAT_COUNT),
+      },
+      remoteApproval: {
+        approvalId: approval.approvalId,
+        versionId: verified.versionId,
+        checksum: verified.checksum,
+        executionTimestamp: process.env.REMOTE_EXECUTION_TIMESTAMP,
+      },
+      immutableImages: {
+        role: imageRole,
+        applicationDigest: approval.images[imageRole].digest,
+        runnerDigest: approval.images.runner.digest,
+      },
+    });
     await executeRun(run, env);
   }
   process.stdout.write(`remote image role completed: ${imageRole}\n`);

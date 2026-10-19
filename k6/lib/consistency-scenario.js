@@ -21,6 +21,7 @@ import {
   requestIdFor,
 } from './consistency.js';
 import { transientFixtureEmail } from './fixture-identity.js';
+import { fixtureEmail, fixtureId } from './fixture-range.js';
 import { recordReservationOutcome, requestStartOffset } from './metrics.js';
 
 function randomText(length) {
@@ -33,6 +34,39 @@ function randomText(length) {
 }
 
 export function setupConsistency(config, preflightToken) {
+  if (config.fixtureSeedMode === 'chunked-bulk') {
+    if (config.isLocal || !__ENV.FIXTURE_USER_PASSWORD) {
+      throw new Error('approved remote fixture credentials are required');
+    }
+    const tokens = [];
+    for (let index = 0; index < config.userCount; index += 1) {
+      const body = parseRequiredObject(
+        login(
+          config.baseUrl,
+          {
+            email: fixtureEmail(config.runId, index),
+            password: __ENV.FIXTURE_USER_PASSWORD,
+          },
+          `${config.scenario}_setup`,
+        ),
+        200,
+        ['accessToken'],
+        'fixture login',
+      );
+      tokens.push(body.accessToken);
+    }
+    return {
+      tokens,
+      userIds: Array.from({ length: config.userCount }, (_, index) =>
+        fixtureId(config.runId, 'user', index),
+      ),
+      seatIds: Array.from({ length: config.seatCount }, (_, index) =>
+        fixtureId(config.runId, 'seat', index),
+      ),
+      performanceId: fixtureId(config.runId, 'performance'),
+      loadEpochMs: Date.now(),
+    };
+  }
   const tokens = [];
   const userIds = [];
   const suffix = `${config.runId}-${randomText(10)}`;

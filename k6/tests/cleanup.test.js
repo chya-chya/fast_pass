@@ -3,10 +3,37 @@ import test from 'node:test';
 
 import { buildCleanupPlan } from '../lib/cleanup.js';
 import {
+  assertRemoteDrainState,
   assertRangeRecoveryAuthorized,
   executeCleanup,
   isRetryableCleanupError,
 } from '../tools/cleanup.mjs';
+
+test('remote cleanup requires a completed drain or an untouched prepared fixture', () => {
+  assert.doesNotThrow(() =>
+    assertRemoteDrainState(
+      { producer: 'COMPLETED' },
+      { enqueue: '3', processed_success: '3', worker_in_flight: '0' },
+      0,
+    ),
+  );
+  assert.doesNotThrow(() =>
+    assertRemoteDrainState(
+      { producer: 'PREPARED' },
+      { enqueue: '0', worker_in_flight: '0' },
+      0,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertRemoteDrainState(
+        { producer: 'OPEN' },
+        { enqueue: '1', processed_success: '1', worker_in_flight: '0' },
+        0,
+      ),
+    /verified producer and worker drain/,
+  );
+});
 
 function config() {
   return {

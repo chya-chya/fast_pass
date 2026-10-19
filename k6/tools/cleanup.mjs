@@ -18,6 +18,26 @@ const RESERVATION_STREAM = '{queue:reservations}:stream:v1';
 const RESERVATION_DLQ = '{queue:reservations}:dlq:v1';
 const TERMINAL_PREFIX = '{queue:reservations}:terminal:';
 
+export function assertRemoteDrainState(state, counters, pending) {
+  const enqueued = Number(counters.enqueue || 0);
+  const terminal =
+    Number(counters.processed_success || 0) +
+    Number(counters.processed_failure || 0);
+  if (
+    !(
+      state.producer === 'COMPLETED' ||
+      ((state.producer === 'PREPARED' || !state.producer) && enqueued === 0)
+    ) ||
+    Number(pending) !== 0 ||
+    Number(counters.worker_in_flight || 0) !== 0 ||
+    terminal !== enqueued
+  ) {
+    throw new Error(
+      'exact cleanup requires verified producer and worker drain',
+    );
+  }
+}
+
 function nextStreamId(streamId) {
   const [milliseconds, sequence] = streamId.split('-').map(Number);
   return `${milliseconds}-${sequence + 1}`;
@@ -160,6 +180,27 @@ async function executeCleanupOnce(config, plan, runtime) {
     }
 
     if (plan.schemaVersion === 2) {
+      const runBase = plan.redis.runBase;
+      const [state, counters, pending] = await Promise.all([
+        redis.hgetall(`${runBase}state`),
+        redis.hgetall(`${runBase}counters`),
+        redis
+          .xpending(RESERVATION_STREAM, 'reservation-workers-v1')
+          .catch((error) => {
+            if (error instanceof Error && error.message.includes('NOGROUP')) {
+              return [0];
+            }
+            throw error;
+          }),
+      ]);
+      if (
+        state.producer === 'OPEN' &&
+        runtime.RECOVERY_PRODUCER_FENCED === 'true'
+      ) {
+        await redis.hset(`${runBase}state`, 'producer', 'COMPLETED');
+        state.producer = 'COMPLETED';
+      }
+      assertRemoteDrainState(state, counters, pending?.[0] || 0);
       const foreignBefore = await client.query(
         `SELECT COUNT(*)::int AS count FROM "Reservation"
          WHERE "testRunId" IS DISTINCT FROM $1`,
@@ -358,7 +399,10 @@ export function assertRangeRecoveryAuthorized(
   }
 }
 
-export async function recoverRangeOwnedData(config, authorization = process.env) {
+export async function recoverRangeOwnedData(
+  config,
+  authorization = process.env,
+) {
   assertRangeRecoveryAuthorized(config, authorization);
   const fixture = {
     schemaVersion: 2,
@@ -378,7 +422,28 @@ export async function recoverRangeOwnedData(config, authorization = process.env)
     performanceId: fixtureId(config.runId, 'performance'),
   };
   const plan = buildCleanupPlan(config, fixture);
-  const deleted = await executeCleanup(config, plan, authorization);
+  const requestedTimeout = Number(
+    authorization.RECOVERY_DRAIN_TIMEOUT_MS || 300000,
+  );
+  if (!Number.isFinite(requestedTimeout) || requestedTimeout < 0) {
+    throw new Error('RECOVERY_DRAIN_TIMEOUT_MS is invalid');
+  }
+  const timeoutMs = Math.min(requestedTimeout, 900000);
+  const started = Date.now();
+  let deleted;
+  while (!deleted) {
+    try {
+      deleted = await executeCleanup(config, plan, authorization);
+    } catch (error) {
+      if (
+        !/verified producer and worker drain/.test(error?.message || '') ||
+        Date.now() - started >= timeoutMs
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
   return {
     schemaVersion: 1,
     runId: config.runId,

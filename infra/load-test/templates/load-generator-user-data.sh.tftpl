@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-dnf install -y docker jq
+dnf install -y docker jq util-linux
 systemctl enable --now docker amazon-ssm-agent
 
 install -d -m 0700 /run/fast-pass

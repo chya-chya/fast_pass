@@ -6,6 +6,29 @@ import {
 } from './test-run-tracker.service';
 
 describe('ReservationMetricsService', () => {
+  const originalCollector = process.env.RESERVATION_QUEUE_METRICS_COLLECTOR;
+  const originalNodeAppInstance = process.env.NODE_APP_INSTANCE;
+  const originalPmId = process.env.pm_id;
+
+  afterEach(() => {
+    if (originalCollector === undefined) {
+      delete process.env.RESERVATION_QUEUE_METRICS_COLLECTOR;
+    } else {
+      process.env.RESERVATION_QUEUE_METRICS_COLLECTOR = originalCollector;
+    }
+    if (originalNodeAppInstance === undefined) {
+      delete process.env.NODE_APP_INSTANCE;
+    } else {
+      process.env.NODE_APP_INSTANCE = originalNodeAppInstance;
+    }
+    if (originalPmId === undefined) {
+      delete process.env.pm_id;
+    } else {
+      process.env.pm_id = originalPmId;
+    }
+    jest.useRealTimers();
+  });
+
   function metric() {
     return {
       inc: jest.fn(),
@@ -113,5 +136,43 @@ describe('ReservationMetricsService', () => {
     expect(metrics.persistence.observe).toHaveBeenCalledWith(1.5);
     expect(metrics.batchSize.observe).toHaveBeenCalledWith(3);
     expect(metrics.batchDuration.observe).toHaveBeenCalledWith(0.25);
+  });
+
+  it('collects expensive queue metrics only on the designated PM2 worker zero', async () => {
+    jest.useFakeTimers();
+    process.env.RESERVATION_QUEUE_METRICS_COLLECTOR = 'true';
+    process.env.NODE_APP_INSTANCE = '0';
+    const redis = {
+      xlen: jest.fn().mockResolvedValue(0),
+      xrange: jest.fn().mockResolvedValue([]),
+      xinfo: jest.fn().mockRejectedValue(new Error('no such key')),
+      xpending: jest.fn(),
+    };
+    const { service } = createService(redis);
+
+    await service.onModuleInit();
+
+    expect(redis.xlen).toHaveBeenCalledTimes(2);
+    service.onModuleDestroy();
+  });
+
+  it.each([
+    ['a non-designated host', 'false', '0'],
+    ['a non-zero PM2 worker', 'true', '1'],
+  ])('does not scan Redis on %s', async (_name, collector, worker) => {
+    process.env.RESERVATION_QUEUE_METRICS_COLLECTOR = collector;
+    process.env.NODE_APP_INSTANCE = worker;
+    const redis = {
+      xlen: jest.fn(),
+      xrange: jest.fn(),
+      xinfo: jest.fn(),
+      xpending: jest.fn(),
+    };
+    const { service } = createService(redis);
+
+    await service.onModuleInit();
+
+    expect(redis.xlen).not.toHaveBeenCalled();
+    service.onModuleDestroy();
   });
 });

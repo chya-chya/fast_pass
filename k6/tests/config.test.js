@@ -79,6 +79,24 @@ test('accepts a verified remote disposable target', () => {
   assert.equal(config.isLocal, false);
 });
 
+test('accepts deterministic chunked fixtures for remote smoke', () => {
+  const config = loadConfig(
+    validEnvironment({
+      BASE_URL: 'http://internal-fast-pass.ap-northeast-2.elb.amazonaws.com',
+      ALLOW_REMOTE_LOAD: 'true',
+      REMOTE_APPROVAL_MANIFEST: 'approval.json',
+      REMOTE_APPROVAL_VERIFIED: 'true',
+      TEST_ENVIRONMENT: 'remote-disposable',
+      EXPECTED_DB_TLS_MODE: 'require',
+      EXPECTED_REDIS_TLS_MODE: 'require',
+      FIXTURE_SEED_MODE: 'chunked-bulk',
+    }),
+    { requireExecution: true },
+  );
+  assert.equal(config.fixtureSeedMode, 'chunked-bulk');
+  assert.equal(config.fixtureCapacityPlan.seats, 5);
+});
+
 test('rejects malformed loopback addresses and production-like identities', () => {
   assert.throws(
     () =>

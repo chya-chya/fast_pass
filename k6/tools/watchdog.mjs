@@ -14,8 +14,17 @@ import {
   parseLinuxCpuCounters,
 } from '../lib/linux-cpu.js';
 import {
+  assertCloudWatchMetricFresh,
+  CLOUDWATCH_WATCHDOG_CODES,
+  cloudWatchCodesOverlappingRun,
+  CLOUDWATCH_RESOURCE_PERIOD_SECONDS,
+  conservativeCpuCreditBalance,
+  EC2_BASIC_PERIOD_SECONDS,
   evaluateWatchdogViolations,
+  freshCloudWatchCodes,
+  hasIndependentCloudWatchCoverage,
   updateViolationCounters,
+  WATCHDOG_CODES,
 } from '../lib/watchdog-policy.js';
 import {
   collectApplicationSnapshot,
@@ -24,6 +33,10 @@ import {
 
 const { Pool } = pg;
 const execFileAsync = promisify(execFile);
+const DATABASE_CACHE_MAX_AGE_MS = 3 * 60_000;
+const REDIS_CACHE_MAX_AGE_MS = 3 * 60_000;
+const EC2_CACHE_MAX_AGE_MS = 10 * 60_000;
+const APP_INSTANCE_VCPUS = 2;
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -95,6 +108,15 @@ function remoteIds(env) {
   return ids;
 }
 
+function requiresIndependentCloudWatchCoverage(config, env = process.env) {
+  return (
+    !config.isLocal &&
+    (['spike', 'soak'].includes(config.scenario) ||
+      (config.scenario === 'capacity-rps' &&
+        /^confirm-(?:50|75|100)$/.test(env.RPS_TEST_PROFILE || '')))
+  );
+}
+
 async function collectAwsSample(cache) {
   const ids = remoteIds(process.env);
   const region = process.env.AWS_REGION || 'ap-northeast-2';
@@ -120,7 +142,7 @@ async function collectAwsSample(cache) {
 
   if (!cache.value || Date.now() - cache.collectedAt >= 60_000) {
     const end = new Date();
-    const start = new Date(end.getTime() - 10 * 60_000);
+    const start = new Date(end.getTime() - 15 * 60_000);
     const queries = ids.flatMap((id, index) => [
       {
         Id: `c${index}`,
@@ -130,7 +152,7 @@ async function collectAwsSample(cache) {
             MetricName: 'CPUUtilization',
             Dimensions: [{ Name: 'InstanceId', Value: id }],
           },
-          Period: 300,
+          Period: EC2_BASIC_PERIOD_SECONDS,
           Stat: 'Average',
         },
         ReturnData: true,
@@ -143,7 +165,7 @@ async function collectAwsSample(cache) {
             MetricName: 'CPUCreditBalance',
             Dimensions: [{ Name: 'InstanceId', Value: id }],
           },
-          Period: 300,
+          Period: EC2_BASIC_PERIOD_SECONDS,
           Stat: 'Minimum',
         },
         ReturnData: true,
@@ -160,7 +182,7 @@ async function collectAwsSample(cache) {
               { Name: 'DBInstanceIdentifier', Value: databaseIdentifier },
             ],
           },
-          Period: 300,
+          Period: CLOUDWATCH_RESOURCE_PERIOD_SECONDS,
           Stat: 'Average',
         },
         ReturnData: true,
@@ -173,7 +195,7 @@ async function collectAwsSample(cache) {
             MetricName: 'EngineCPUUtilization',
             Dimensions: [{ Name: 'CacheClusterId', Value: redisClusterId }],
           },
-          Period: 300,
+          Period: CLOUDWATCH_RESOURCE_PERIOD_SECONDS,
           Stat: 'Average',
         },
         ReturnData: true,
@@ -186,7 +208,7 @@ async function collectAwsSample(cache) {
             MetricName: 'DatabaseMemoryUsagePercentage',
             Dimensions: [{ Name: 'CacheClusterId', Value: redisClusterId }],
           },
-          Period: 300,
+          Period: CLOUDWATCH_RESOURCE_PERIOD_SECONDS,
           Stat: 'Maximum',
         },
         ReturnData: true,
@@ -213,30 +235,100 @@ async function collectAwsSample(cache) {
       .filter((result) => result.Id.startsWith('c'))
       .map((result) => result.Values?.[0])
       .filter(Number.isFinite);
-    const valueFor = (id) =>
-      results.find((result) => result.Id === id)?.Values?.[0];
+    const cpuTimestamps = results
+      .filter((result) => result.Id.startsWith('c'))
+      .map((result) => Date.parse(result.Timestamps?.[0]))
+      .filter(Number.isFinite);
+    const resultFor = (id) => results.find((result) => result.Id === id);
+    const valueFor = (id) => resultFor(id)?.Values?.[0];
+    const timestampFor = (id) => resultFor(id)?.Timestamps?.[0];
     const databaseCpuPercent = valueFor('databasecpu');
     const redisCpuPercent = valueFor('rediscpu');
     const redisMemoryPercent = valueFor('redismemory');
+    const creditTimestamps = results
+      .filter((result) => result.Id.startsWith('b'))
+      .map((result) => Date.parse(result.Timestamps?.[0]))
+      .filter(Number.isFinite);
+    const databaseCpuTimestamp = Date.parse(timestampFor('databasecpu'));
+    const redisCpuTimestamp = Date.parse(timestampFor('rediscpu'));
+    const redisMemoryTimestamp = Date.parse(timestampFor('redismemory'));
     if (
       creditValues.length !== 7 ||
+      creditTimestamps.length !== 7 ||
       cpuValues.length !== 7 ||
-      ![databaseCpuPercent, redisCpuPercent, redisMemoryPercent].every(
-        Number.isFinite,
-      )
+      cpuTimestamps.length !== 7 ||
+      ![
+        databaseCpuPercent,
+        redisCpuPercent,
+        redisMemoryPercent,
+        databaseCpuTimestamp,
+        redisCpuTimestamp,
+        redisMemoryTimestamp,
+      ].every(Number.isFinite)
     ) {
       throw new Error('CloudWatch inputs are incomplete');
     }
+    const cpuCreditObservedAt = new Date(
+      Math.min(...creditTimestamps),
+    ).toISOString();
     cache.value = {
-      minimumCpuCreditBalance: Math.min(...creditValues),
+      observedMinimumCpuCreditBalance: Math.min(...creditValues),
+      cpuCreditObservedAt,
+      appCpuObservedAt: new Date(Math.min(...cpuTimestamps)).toISOString(),
       maximumAppCpuPercent: Math.max(...cpuValues),
       databaseCpuPercent,
       redisCpuPercent,
       redisMemoryPercent,
+      cloudwatchObservations: {
+        DATABASE_CPU_SATURATED: new Date(databaseCpuTimestamp).toISOString(),
+        REDIS_CPU_SATURATED: new Date(redisCpuTimestamp).toISOString(),
+        REDIS_MEMORY_SATURATED: new Date(redisMemoryTimestamp).toISOString(),
+        APP_CPU_CREDIT_LOW: cpuCreditObservedAt,
+      },
     };
     cache.collectedAt = Date.now();
   }
-  return { unhealthyTargets, ...cache.value };
+  const now = Date.now();
+  assertCloudWatchMetricFresh(
+    cache.value.cloudwatchObservations.DATABASE_CPU_SATURATED,
+    now,
+    DATABASE_CACHE_MAX_AGE_MS,
+    'database CPU',
+  );
+  assertCloudWatchMetricFresh(
+    cache.value.cloudwatchObservations.REDIS_CPU_SATURATED,
+    now,
+    REDIS_CACHE_MAX_AGE_MS,
+    'Redis CPU',
+  );
+  assertCloudWatchMetricFresh(
+    cache.value.cloudwatchObservations.REDIS_MEMORY_SATURATED,
+    now,
+    REDIS_CACHE_MAX_AGE_MS,
+    'Redis memory',
+  );
+  assertCloudWatchMetricFresh(
+    cache.value.cpuCreditObservedAt,
+    now,
+    EC2_CACHE_MAX_AGE_MS,
+    'EC2 CPU credit',
+  );
+  assertCloudWatchMetricFresh(
+    cache.value.appCpuObservedAt,
+    now,
+    EC2_CACHE_MAX_AGE_MS,
+    'EC2 CPU',
+  );
+  return {
+    unhealthyTargets,
+    ...cache.value,
+    minimumCpuCreditBalance: conservativeCpuCreditBalance(
+      cache.value.observedMinimumCpuCreditBalance,
+      cache.value.cpuCreditObservedAt,
+      now,
+      APP_INSTANCE_VCPUS,
+    ),
+  };
 }
 
 function sleep(milliseconds) {
@@ -370,8 +462,18 @@ async function main() {
         : 'seven_pm2_exporters',
       cloudwatch: config.isLocal
         ? 'unavailable_in_local_disposable_environment'
-        : 'ec2_cpu_and_credits',
+        : 'rds_and_redis_60s_datapoints_plus_ec2_credit_lower_bound',
     },
+    cloudwatchObservationCounts: Object.fromEntries(
+      CLOUDWATCH_WATCHDOG_CODES.map((code) => [code, 0]),
+    ),
+    cpuCreditEstimation: config.isLocal
+      ? null
+      : {
+          method: 'observed_balance_minus_maximum_two_vcpu_consumption',
+          vcpusPerInstance: APP_INSTANCE_VCPUS,
+          accrualAssumed: 0,
+        },
   };
   let stopRequested = false;
   let previousRequests = null;
@@ -381,6 +483,7 @@ async function main() {
   let previousRssBytes = null;
   let previousQueueDepth = null;
   let consecutive = {};
+  let previousCloudWatchObservations = {};
   const cloudwatchCache = { value: null, collectedAt: 0 };
 
   const finish = async (status, abortReason = null) => {
@@ -401,6 +504,11 @@ async function main() {
     while (!stopRequested) {
       const sampleStartedAt = Date.now();
       let currentViolations = [];
+      let evaluatedCodes = config.isLocal
+        ? WATCHDOG_CODES
+        : WATCHDOG_CODES.filter(
+            (code) => !CLOUDWATCH_WATCHDOG_CODES.includes(code),
+          );
       try {
         const [
           snapshot,
@@ -438,6 +546,9 @@ async function main() {
                   databaseCpuPercent: null,
                   redisCpuPercent: null,
                   redisMemoryPercent: null,
+                  observedMinimumCpuCreditBalance: null,
+                  cpuCreditObservedAt: null,
+                  cloudwatchObservations: {},
                 })
               : collectAwsSample(cloudwatchCache),
           ),
@@ -593,6 +704,9 @@ async function main() {
           processRestarts: state.processRestarts,
           unhealthyTargets: awsSample.unhealthyTargets,
           minimumCpuCreditBalance: awsSample.minimumCpuCreditBalance,
+          observedMinimumCpuCreditBalance:
+            awsSample.observedMinimumCpuCreditBalance,
+          cpuCreditObservedAt: awsSample.cpuCreditObservedAt,
           appCpuPercent: awsSample.maximumAppCpuPercent,
           databaseCpuPercent: awsSample.databaseCpuPercent,
           redisCpuPercent: awsSample.redisCpuPercent,
@@ -602,6 +716,32 @@ async function main() {
           sample,
           state.thresholds,
         );
+        if (!config.isLocal) {
+          const freshCodes = freshCloudWatchCodes(
+            previousCloudWatchObservations,
+            awsSample.cloudwatchObservations,
+          );
+          const runCoverageCodes = cloudWatchCodesOverlappingRun(
+            awsSample.cloudwatchObservations,
+            freshCodes,
+            state.startedAt,
+          );
+          evaluatedCodes = WATCHDOG_CODES.filter(
+            (code) =>
+              !CLOUDWATCH_WATCHDOG_CODES.includes(code) ||
+              runCoverageCodes.includes(code),
+          );
+          for (const code of freshCodes) {
+            previousCloudWatchObservations[code] =
+              awsSample.cloudwatchObservations[code];
+          }
+          for (const code of runCoverageCodes) {
+            state.cloudwatchObservationCounts[code] += 1;
+          }
+          sample.freshCloudWatchCodes = freshCodes;
+          sample.runCoverageCloudWatchCodes = runCoverageCodes;
+        }
+        sample.cloudwatchObservations = awsSample.cloudwatchObservations;
         sample.violations = currentViolations;
         if (!preflightOnly) {
           await appendFile(timeseriesPath, `${JSON.stringify(sample)}\n`, {
@@ -645,6 +785,7 @@ async function main() {
         consecutive,
         currentViolations,
         config.watchdogConsecutiveViolations,
+        evaluatedCodes,
       );
       consecutive = updated.counts;
       const abortReason = updated.abortReason;
@@ -660,6 +801,17 @@ async function main() {
           config.watchdogPollIntervalMs - (Date.now() - sampleStartedAt),
         ),
       );
+    }
+    if (
+      requiresIndependentCloudWatchCoverage(config) &&
+      !hasIndependentCloudWatchCoverage(
+        state.cloudwatchObservationCounts,
+        config.watchdogConsecutiveViolations,
+      )
+    ) {
+      await finish('ABORTED', 'WATCHDOG_CLOUDWATCH_COVERAGE_INSUFFICIENT');
+      process.exitCode = 2;
+      return;
     }
     await finish('COMPLETED');
   } finally {

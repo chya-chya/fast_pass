@@ -86,20 +86,21 @@ resource "aws_instance" "app" {
 
   user_data_replace_on_change = true
   user_data = templatefile("${path.module}/templates/app-user-data.sh.tftpl", {
-    aws_region     = var.aws_region
-    image_uri      = local.image_uri == null ? "IMAGE_NOT_CONFIGURED" : local.image_uri
-    ecr_registry   = split("/", aws_ecr_repository.app.repository_url)[0]
-    parameter_name = aws_ssm_parameter.app.name
-    database_host  = aws_db_instance.postgres.address
-    database_port  = aws_db_instance.postgres.port
-    database_name  = local.database_name
-    redis_host     = aws_elasticache_replication_group.redis.primary_endpoint_address
-    redis_port     = aws_elasticache_replication_group.redis.port
-    environment_id = var.environment_id
-    redis_prefix   = local.redis_prefix
-    app_build_sha  = var.app_build_sha
-    pm2_instances  = var.pm2_app_instances
-    run_migration  = count.index == 0
+    aws_region              = var.aws_region
+    image_uri               = local.image_uri == null ? "IMAGE_NOT_CONFIGURED" : local.image_uri
+    ecr_registry            = split("/", aws_ecr_repository.app.repository_url)[0]
+    parameter_name          = aws_ssm_parameter.app.name
+    database_host           = aws_db_instance.postgres.address
+    database_port           = aws_db_instance.postgres.port
+    database_name           = local.database_name
+    redis_host              = aws_elasticache_replication_group.redis.primary_endpoint_address
+    redis_port              = aws_elasticache_replication_group.redis.port
+    environment_id          = var.environment_id
+    redis_prefix            = local.redis_prefix
+    app_build_sha           = var.app_build_sha
+    pm2_instances           = var.pm2_app_instances
+    run_migration           = count.index == 0
+    queue_metrics_collector = count.index == 0
   })
 
   tags = {
@@ -109,6 +110,7 @@ resource "aws_instance" "app" {
     FastPassBuildSha        = var.app_build_sha
     FastPassPm2Workers      = tostring(var.pm2_app_instances)
     FastPassDbPoolPerWorker = "4"
+    FastPassQueueCollector  = tostring(count.index == 0)
   }
 
 

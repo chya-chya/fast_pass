@@ -138,7 +138,7 @@ k6/manage-remote-generator stop --execute
 
 ## 중단 기준
 
-14개 worker 지표, 7개 PM2 exporter, PostgreSQL, Redis, ALB Target Health, EC2 CPU credit와 발생기 CPU를 2초마다 감시합니다. 필수 입력을 시작 전에 읽지 못하면 k6를 실행하지 않습니다. 승인 파일에 고정된 오류율, DB 연결률, event-loop lag, queue 깊이, 발생기 CPU, CPU credit, eviction, restart, unhealthy target 기준을 3회 연속 위반하면 k6에 `SIGINT`를 보내고 Run을 `ABORTED`로 보존합니다.
+14개 worker 지표, 7개 PM2 exporter, PostgreSQL, Redis, ALB Target Health, EC2 CPU credit와 발생기 CPU를 2초마다 감시합니다. 필수 입력을 시작 전에 읽지 못하면 k6를 실행하지 않습니다. RDS·Redis 자원 기준은 서로 다른 1분 CloudWatch datapoint 3개로 판정하며, qualification Run은 이를 수집할 최소 180초가 필요합니다. EC2 CPU credit은 5분 실제 datapoint 사이에서 `t3.small` 2 vCPU의 최대 소비량을 차감한 보수적 하한을 2초마다 계산합니다. 승인 파일에 고정된 오류율, DB 연결률, event-loop lag, queue 깊이, 발생기 CPU, CPU credit, eviction, restart, unhealthy target 기준을 3회 연속 위반하면 k6에 `SIGINT`를 보내고 Run을 `ABORTED`로 보존합니다. qualification 종료 시 RDS·Redis의 독립 표본이 부족해도 Run을 무효 처리합니다.
 
 ## 완료 판정
 
