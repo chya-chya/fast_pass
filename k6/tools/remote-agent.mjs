@@ -87,6 +87,22 @@ function execute(command, args, env) {
   });
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function verifyPostRecoveryReadiness(env) {
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const status = await execute('node', ['k6/tools/preflight.mjs'], env);
+    if (status === 0) {
+      process.stdout.write('post-recovery preflight verified\n');
+      return;
+    }
+    if (attempt < 6) await sleep(10_000);
+  }
+  throw new Error('post-recovery preflight failed after six attempts');
+}
+
 function commonRunEnvironment(approval, verified, inventory, imageRole) {
   const image = approval.images[imageRole];
   const workerMetrics = inventory.appInstances.flatMap((instance) => [
@@ -367,6 +383,7 @@ async function main() {
     );
     await verifyRemoteStorage(approval);
     const env = commonRunEnvironment(approval, verified, inventory, imageRole);
+    let recovered = false;
     if (approval.resume && (await remoteRunHasEvidence(run, approval))) {
       const recovery = await recoverRangeOwnedData(
         loadConfig(
@@ -377,7 +394,9 @@ async function main() {
       );
       await uploadRecoveryRecord(approval, recovery);
       process.stdout.write(`resume exact cleanup verified: ${run.runId}\n`);
+      recovered = true;
     }
+    if (recovered) await verifyPostRecoveryReadiness(env);
     await executeRun(run, env);
   }
   process.stdout.write(`remote image role completed: ${imageRole}\n`);
