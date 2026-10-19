@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig } from '../lib/config.js';
 import { fetchVersionedRemoteApproval } from './remote-approval-s3.mjs';
@@ -101,6 +101,15 @@ async function verifyPostRecoveryReadiness(env) {
     if (attempt < 6) await sleep(10_000);
   }
   throw new Error('post-recovery preflight failed after six attempts');
+}
+
+export function buildRunEnvironment(baseEnv, run) {
+  return {
+    ...baseEnv,
+    ...run.env,
+    RUN_ID: run.runId,
+    SCENARIO: run.scenario,
+  };
 }
 
 function commonRunEnvironment(approval, verified, inventory, imageRole) {
@@ -266,12 +275,7 @@ async function uploadRecoveryRecord(approval, record) {
 }
 
 async function executeRun(run, baseEnv) {
-  const env = {
-    ...baseEnv,
-    ...run.env,
-    RUN_ID: run.runId,
-    SCENARIO: run.scenario,
-  };
+  const env = buildRunEnvironment(baseEnv, run);
   loadConfig(env, { requireExecution: true });
   const runStatus = await execute('bash', ['k6/run.sh'], env);
   if (runStatus === 78) {
@@ -396,13 +400,20 @@ async function main() {
       process.stdout.write(`resume exact cleanup verified: ${run.runId}\n`);
       recovered = true;
     }
-    if (recovered) await verifyPostRecoveryReadiness(env);
+    if (recovered) {
+      await verifyPostRecoveryReadiness(buildRunEnvironment(env, run));
+    }
     await executeRun(run, env);
   }
   process.stdout.write(`remote image role completed: ${imageRole}\n`);
 }
 
-main().catch((error) => {
-  process.stderr.write(`remote agent rejected: ${error.message}\n`);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    process.stderr.write(`remote agent rejected: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}
