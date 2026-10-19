@@ -3,10 +3,8 @@ import * as crypto from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReservationService } from './reservation.service';
 import {
-  RESERVATION_DLQ,
-  RESERVATION_PROCESSING_QUEUE,
-  RESERVATION_QUEUE,
-  RESERVATION_RETRY_QUEUE,
+  RESERVATION_DLQ_STREAM,
+  RESERVATION_STREAM,
   TestRunTrackerService,
 } from './test-run-tracker.service';
 
@@ -48,12 +46,7 @@ integrationDescribe('Reservation rebooking integration', () => {
       counter as never,
       tracker,
     );
-    await redis.del(
-      RESERVATION_QUEUE,
-      RESERVATION_PROCESSING_QUEUE,
-      RESERVATION_RETRY_QUEUE,
-      RESERVATION_DLQ,
-    );
+    await redis.del(RESERVATION_STREAM, RESERVATION_DLQ_STREAM);
   });
 
   afterAll(async () => {

@@ -72,7 +72,7 @@ sequenceDiagram
             end
 
             Note over Service, Redis: [Step 3] Write-Back Strategy
-            Service->>Redis: RPUSH queue:reservations (payload)
+            Service->>Redis: XADD reservation stream (reservation ID + payload)
             Service->>Redis: SET seat:{seatId}:status = 'HELD' (TTL 600s)
 
             Note over Service, Redis: [Step 4] Release Lock

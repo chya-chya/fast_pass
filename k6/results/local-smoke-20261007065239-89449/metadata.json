@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261007065239-89449",
+  "scenario": "smoke",
+  "startedAt": "2026-10-07T06:52:48.461Z",
+  "finishedAt": "2026-10-07T06:52:57.000Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-07T06:52:48.679Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "945be053e2a55208cf6a30cca723871d63a8796d",
+    "gitDirty": false,
+    "scriptSha256": "7d7321f5fed4a82571b7c910107627749c902522c5342e23b4ad7f04f7dbd66b"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:59418",
+    "runId": "local-smoke-20261007065239-89449",
+    "scenario": "smoke",
+    "scriptPath": "k6/scenarios/smoke.js",
+    "vus": 1,
+    "rps": 1,
+    "duration": "5s",
+    "userCount": 1,
+    "seatCount": 5,
+    "cacheProfile": "warm",
+    "executor": "per-vu-iterations",
+    "iterationsPerVu": 1,
+    "totalIterations": 1,
+    "totalRequests": 1,
+    "requestsPerSeat": 0.2,
+    "expectedAccepted": 1,
+    "expectedConflicts": 0,
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100706523989449",
+    "testDatabaseName": "fast_pass_k6_k6int2026100706523989449",
+    "testRedisId": "redis-k6int2026100706523989449",
+    "redisKeyPrefix": "k6:k6int2026100706523989449:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "3be3b6fbadcbff6f194d4d3b9c90c3a90b0a1b4e",
+    "expectedMigrationId": "20261002082100_drop_legacy_reservation_seat_unique",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "resultDir": "k6/results/local-smoke-20261007065239-89449",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}
