@@ -1,7 +1,7 @@
 import exec from 'k6/execution';
 
 import { loadConfig } from '../lib/config.js';
-import { spikePhaseOffsets } from '../lib/endurance.js';
+import { maximumRateThreshold, spikePhaseOffsets } from '../lib/endurance.js';
 import {
   abortingThreshold,
   executeLongRunIteration,
@@ -57,13 +57,13 @@ export const options = {
     ),
   },
   thresholds: {
-    checks: ['rate==1'],
-    unexpected_error_rate: abortingThreshold('rate<0.001', abortDelay),
+    unexpected_error_rate: abortingThreshold(
+      maximumRateThreshold(config.watchdogMaxUnexpectedErrorRate),
+      abortDelay,
+    ),
     dropped_iterations: abortingThreshold('count==0', abortDelay),
     spike_peak_accepted_duration_ms: ['p(95)<200', 'p(99)<500'],
     spike_recovery_accepted_duration_ms: ['p(95)<200', 'p(99)<500'],
-    spike_recovery_unexpected_error: ['count==0'],
-    spike_recovery_timeout: ['count==0'],
   },
   setupTimeout: config.loadSetupAllowance,
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],

@@ -165,10 +165,11 @@ resource "aws_instance" "load_generator" {
   })
 
   tags = {
-    Name                   = "${local.name}-load-generator"
-    Role                   = "ephemeral-k6-generator"
-    FastPassRunnerDigest   = var.runner_image_digest
-    FastPassRunnerBuildSha = local.runner_build_sha
+    Name                     = "${local.name}-load-generator"
+    Role                     = "ephemeral-k6-generator"
+    FastPassRunnerDigest     = var.runner_image_digest
+    FastPassRunnerBuildSha   = local.runner_build_sha
+    FastPassMaxLifetimeHours = tostring(var.load_generator_max_lifetime_hours)
   }
 
   lifecycle {

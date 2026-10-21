@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseMetricsUrls } from '../tools/metrics-source.mjs';
+import {
+  assertQueueCollectorMetrics,
+  parseMetricsUrls,
+} from '../tools/metrics-source.mjs';
 
 test('accepts only exact private worker metric URLs', () => {
   const urls = Array.from(
@@ -33,5 +36,57 @@ test('accepts only exact private worker metric URLs', () => {
         [9300, 9301],
       ),
     /private metrics boundary/,
+  );
+});
+
+function queueSnapshot(collectionValues, retryValues = collectionValues) {
+  const series = [];
+  for (const [name, values] of [
+    ['reservation_queue_metrics_collection_up', collectionValues],
+    ['reservation_queue_retry_scan_complete', retryValues],
+  ]) {
+    values.forEach((value, index) => {
+      series.push({
+        name,
+        value,
+        labels: {
+          instance: `i-${index}`,
+          host: `host-${index}`,
+          pm_id: String(index % 2),
+          pid: String(1000 + index),
+        },
+      });
+    });
+  }
+  return { series };
+}
+
+test('requires exactly one healthy remote queue collector for both gauges', () => {
+  assert.equal(
+    assertQueueCollectorMetrics(queueSnapshot([1, 0, 0]), true),
+    'i-0/0/1000',
+  );
+  assert.throws(
+    () => assertQueueCollectorMetrics(queueSnapshot([1, 1, 0]), true),
+    /exactly one healthy collector/,
+  );
+  assert.throws(
+    () => assertQueueCollectorMetrics(queueSnapshot([0, 0, 0]), true),
+    /exactly one healthy collector/,
+  );
+  assert.throws(
+    () => assertQueueCollectorMetrics(queueSnapshot([1, 0], [0, 1]), true),
+    /same collector/,
+  );
+});
+
+test('requires healthy queue collection and complete retry scan locally', () => {
+  assert.equal(
+    assertQueueCollectorMetrics(queueSnapshot([1]), false),
+    'i-0/0/1000',
+  );
+  assert.throws(
+    () => assertQueueCollectorMetrics(queueSnapshot([1], [0]), false),
+    /exactly one healthy collector/,
   );
 });

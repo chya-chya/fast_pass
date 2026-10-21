@@ -142,9 +142,17 @@ export async function buildCandidateApprovalDraft(
         digest: images.candidate.digest,
       },
       runner: {
-        gitSha: images.runner.git_sha,
-        digest: images.runner.digest,
+        gitSha: sourceApproval
+          ? sourceApproval.images.runner.gitSha
+          : images.runner.git_sha,
+        digest: sourceApproval
+          ? sourceApproval.images.runner.digest
+          : images.runner.digest,
       },
+    },
+    infrastructure: {
+      ...template.infrastructure,
+      generatorMaxLifetimeHours: descriptor.load_generator_max_lifetime_hours,
     },
     ...(args['--resume-source-approval-id']
       ? {

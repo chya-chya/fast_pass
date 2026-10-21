@@ -140,6 +140,10 @@ k6/manage-remote-generator stop --execute
 
 14개 worker 지표, 7개 PM2 exporter, PostgreSQL, Redis, ALB Target Health, EC2 CPU credit와 발생기 CPU를 2초마다 감시합니다. 필수 입력을 시작 전에 읽지 못하면 k6를 실행하지 않습니다. RDS·Redis 자원 기준은 서로 다른 1분 CloudWatch datapoint 3개로 판정하며, qualification Run은 이를 수집할 최소 180초가 필요합니다. EC2 CPU credit은 5분 실제 datapoint 사이에서 `t3.small` 2 vCPU의 최대 소비량을 차감한 보수적 하한을 2초마다 계산합니다. 승인 파일에 고정된 오류율, DB 연결률, event-loop lag, queue 깊이, 발생기 CPU, CPU credit, eviction, restart, unhealthy target 기준을 3회 연속 위반하면 k6에 `SIGINT`를 보내고 Run을 `ABORTED`로 보존합니다. qualification 종료 시 RDS·Redis의 독립 표본이 부족해도 Run을 무효 처리합니다.
 
+승인 계획은 앱 access token 2시간, Redis tracking 24시간, SSM role 24시간의 실제 제한을 먼저 계산합니다. 개별 Run에 시나리오별 운영 여유와 보수적인 fixture seed·cleanup 시간을 더하며, role 전체는 SSM 제한보다 최소 1시간의 여유를 남겨야 합니다. 이 envelope를 만족하지 않는 승인 파일은 원격 실행을 시작하지 않습니다.
+
+임시 발생기의 EC2 `LaunchTime`과 `FastPassMaxLifetimeHours` 태그도 승인 사양과 대조합니다. 현재 시각부터 남은 Run 전체 envelope가 자동 종료 시각 안에 끝나지 않으면 실행을 거부합니다. 재개 시에는 checksum 검증을 통과한 봉인 Run을 먼저 제외하므로 이미 완료한 Run 때문에 새 시간창이나 발생기 수명을 다시 소비하지 않습니다.
+
 ## 완료 판정
 
 `REMOTE_VERIFIED`는 승인된 모든 Run이 실행 결과와 무관하게 가능한 산출물을 보존하고, 성공 Run이 정합성 감사·exact cleanup·watchdog·체크섬 검증을 모두 통과한 경우에만 기록됩니다. CPU credit 고갈, RDS·Redis 포화 또는 발생기 CPU 포화 Run은 앱 자체 한계의 근거로 사용하지 않습니다.

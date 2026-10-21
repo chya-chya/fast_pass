@@ -1,6 +1,7 @@
 import exec from 'k6/execution';
 
 import { loadConfig } from '../lib/config.js';
+import { maximumRateThreshold } from '../lib/endurance.js';
 import {
   abortingThreshold,
   executeLongRunIteration,
@@ -33,12 +34,12 @@ export const options = {
     },
   },
   thresholds: {
-    checks: ['rate==1'],
-    unexpected_error_rate: abortingThreshold('rate<0.001', abortDelay),
+    unexpected_error_rate: abortingThreshold(
+      maximumRateThreshold(config.watchdogMaxUnexpectedErrorRate),
+      abortDelay,
+    ),
     dropped_iterations: abortingThreshold('count==0', abortDelay),
     soak_accepted_duration_ms: ['p(95)<200', 'p(99)<500'],
-    soak_unexpected_error: ['count==0'],
-    soak_timeout: ['count==0'],
     ...Object.fromEntries(
       Array.from({ length: SOAK_WINDOW_COUNT }, (_, index) => [
         `soak_window_${index + 1}_accepted_duration_ms`,

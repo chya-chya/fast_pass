@@ -1,6 +1,42 @@
 import { parsePrometheusSnapshot } from '../lib/prometheus.js';
 
 const MAX_METRICS_BYTES = 2 * 1024 * 1024;
+const QUEUE_HEALTH_METRICS = Object.freeze([
+  'reservation_queue_metrics_collection_up',
+  'reservation_queue_retry_scan_complete',
+]);
+
+function workerIdentity(series, remote) {
+  const instance = remote
+    ? series.labels.instance
+    : series.labels.instance || series.labels.host;
+  const pmId = series.labels.pm_id;
+  const pid = series.labels.pid;
+  if (!instance || !pmId || !pid) {
+    throw new Error('queue collector worker identity is missing');
+  }
+  return `${instance}/${pmId}/${pid}`;
+}
+
+export function assertQueueCollectorMetrics(snapshot, remote = false) {
+  let collectorIdentity = null;
+  for (const name of QUEUE_HEALTH_METRICS) {
+    const series = snapshot.series.filter((item) => item.name === name);
+    if (series.some((item) => ![0, 1].includes(item.value))) {
+      throw new Error(`${name} must be a binary gauge`);
+    }
+    const healthy = series.filter((item) => item.value === 1);
+    if (healthy.length !== 1) {
+      throw new Error(`${name} must identify exactly one healthy collector`);
+    }
+    const identity = workerIdentity(healthy[0], remote);
+    if (collectorIdentity !== null && collectorIdentity !== identity) {
+      throw new Error('queue health gauges must come from the same collector');
+    }
+    collectorIdentity = identity;
+  }
+  return collectorIdentity;
+}
 
 function isPrivateIpv4(hostname) {
   const parts = hostname.split('.').map(Number);

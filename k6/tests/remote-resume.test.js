@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   assertNoLegacyRecoveryEvidence,
   assertResumeScope,
+  selectRemainingRemoteRuns,
   validateRecoveryIntent,
   validateRemoteChecksumSet,
   validateSealedRunArtifacts,
@@ -25,10 +26,6 @@ async function approvals() {
     endsAt: '2099-01-02T04:00:00Z',
   };
   current.environment.loadGeneratorInstanceId = 'i-fedcba9876543210';
-  current.images.runner = {
-    gitSha: 'b'.repeat(40),
-    digest: `sha256:${'c'.repeat(64)}`,
-  };
   current.resume = {
     sourceApprovalId: source.approvalId,
     sourceVersionId: 'source-version',
@@ -38,7 +35,7 @@ async function approvals() {
   return { source, current };
 }
 
-test('resume scope permits only runner, generator, and window changes', async () => {
+test('resume scope permits only generator and window changes', async () => {
   const { source, current } = await approvals();
   assert.doesNotThrow(() =>
     assertResumeScope(current, source, {
@@ -52,6 +49,20 @@ test('resume scope permits only runner, generator, and window changes', async ()
   assert.throws(
     () =>
       assertResumeScope(expanded, source, {
+        approvalId: source.approvalId,
+        versionId: 'source-version',
+        checksum: 'd'.repeat(64),
+      }),
+    /expands or changes/,
+  );
+  const changedRunner = structuredClone(current);
+  changedRunner.images.runner = {
+    gitSha: 'b'.repeat(40),
+    digest: `sha256:${'c'.repeat(64)}`,
+  };
+  assert.throws(
+    () =>
+      assertResumeScope(changedRunner, source, {
         approvalId: source.approvalId,
         versionId: 'source-version',
         checksum: 'd'.repeat(64),
@@ -192,5 +203,29 @@ test('legacy metadata or raw evidence cannot authorize deterministic cleanup', (
   assert.throws(
     () => assertNoLegacyRecoveryEvidence(true, 'resume-run'),
     /legacy evidence.*manual intervention/,
+  );
+});
+
+test('resume envelope contains only runs that are not checksum-verified and sealed', async () => {
+  const { source, current } = await approvals();
+  const matrix = [
+    { runId: 'sealed-run', scenario: 'smoke', imageRole: 'candidate' },
+    { runId: 'remaining-run', scenario: 'soak', imageRole: 'candidate' },
+  ];
+  const inspected = [];
+  const remaining = await selectRemainingRemoteRuns({
+    matrix,
+    approval: current,
+    currentIdentity: {},
+    sourceApproval: source,
+    inspect: async ({ run }) => {
+      inspected.push(run.runId);
+      return run.runId === 'sealed-run';
+    },
+  });
+  assert.deepEqual(inspected, ['sealed-run', 'remaining-run']);
+  assert.deepEqual(
+    remaining.map((run) => run.runId),
+    ['remaining-run'],
   );
 });

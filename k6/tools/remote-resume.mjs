@@ -69,6 +69,7 @@ function resumeScope(approval) {
     environment,
     mode: approval.mode,
     candidate: approval.images.candidate,
+    runner: approval.images.runner,
     infrastructure: approval.infrastructure,
     limits: approval.limits,
     execution: approval.execution,
@@ -252,6 +253,27 @@ export async function inspectSealedRemoteRun({
     sourceApproval,
   });
   return true;
+}
+
+export async function selectRemainingRemoteRuns({
+  matrix,
+  approval,
+  currentIdentity,
+  sourceApproval,
+  inspect = inspectSealedRemoteRun,
+}) {
+  if (!approval.resume) return [...matrix];
+  const remaining = [];
+  for (const run of matrix) {
+    const sealed = await inspect({
+      run,
+      approval,
+      currentIdentity,
+      sourceApproval,
+    });
+    if (!sealed) remaining.push(run);
+  }
+  return remaining;
 }
 
 export function validateRecoveryIntent(intent, run, approval, currentIdentity) {

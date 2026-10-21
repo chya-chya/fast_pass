@@ -17,6 +17,7 @@ import { CAPACITY_ASSIGNMENTS, capacityAssignmentFor } from './capacity.js';
 import { requestIdFor } from './consistency.js';
 import { transientFixtureEmail } from './fixture-identity.js';
 import { fixtureEmail, fixtureId, rangeAssignment } from './fixture-range.js';
+import { assertRemoteLoadWindow } from './load-window.js';
 import {
   recordLongRunRequestStarted,
   recordLongRunResponseCompleted,
@@ -56,6 +57,7 @@ export function setupLongRun(config, env) {
       );
       tokens.push(loginBody.accessToken);
     }
+    assertRemoteLoadWindow(config, env);
     return {
       tokens,
       userCount: config.userCount,

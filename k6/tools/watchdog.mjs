@@ -27,6 +27,7 @@ import {
   WATCHDOG_CODES,
 } from '../lib/watchdog-policy.js';
 import {
+  assertQueueCollectorMetrics,
   collectApplicationSnapshot,
   collectPm2Snapshots,
 } from './metrics-source.mjs';
@@ -520,7 +521,10 @@ async function main() {
         ] = await Promise.all([
           monitored(
             'application_worker_metrics',
-            collectApplicationSnapshot(config),
+            collectApplicationSnapshot(config).then((applicationSnapshot) => {
+              assertQueueCollectorMetrics(applicationSnapshot, !config.isLocal);
+              return applicationSnapshot;
+            }),
           ),
           monitored(
             'postgresql',

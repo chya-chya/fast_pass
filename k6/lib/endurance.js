@@ -1,6 +1,13 @@
 export const LONG_RUN_SCENARIOS = Object.freeze(['spike', 'soak']);
 export const SPIKE_PHASES = Object.freeze(['baseline', 'peak', 'recovery']);
 
+export function maximumRateThreshold(maximum) {
+  if (!Number.isFinite(maximum) || maximum < 0 || maximum > 1) {
+    throw new Error('maximum rate threshold must be between zero and one');
+  }
+  return `rate<=${maximum}`;
+}
+
 function assertPositiveInteger(value, label) {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`${label} must be a positive integer`);

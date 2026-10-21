@@ -13,13 +13,17 @@ import { loadConfig } from '../lib/config.js';
 import { fetchVersionedRemoteApproval } from './remote-approval-s3.mjs';
 import { verifyLocalGates } from './remote-gates.mjs';
 import { awsJson, inspectRemoteInfrastructure } from './remote-inventory.mjs';
-import { buildRemoteExecutionMatrix } from './remote-plan.mjs';
+import {
+  assertGeneratorLifetimeHeadroom,
+  buildRemoteExecutionMatrix,
+  validateExecutionEnvelopes,
+} from './remote-plan.mjs';
 import { verifyRemoteStorage } from './remote-storage.mjs';
 import { recoverRangeOwnedData } from './cleanup.mjs';
 import {
   assertResumeScope,
-  inspectSealedRemoteRun,
   remoteRunHasEvidence,
+  selectRemainingRemoteRuns,
 } from './remote-resume.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -178,6 +182,7 @@ function commonRunEnvironment(approval, verified, inventory, imageRole) {
     REMOTE_APPROVAL_ID: approval.approvalId,
     REMOTE_APPROVAL_VERSION_ID: verified.versionId,
     REMOTE_APPROVAL_CHECKSUM: verified.checksum,
+    REMOTE_APPROVAL_ENDS_AT: approval.window.endsAt,
     REMOTE_IMAGE_ROLE: imageRole,
     APP_IMAGE_DIGEST: image.digest,
     BASE_URL: approval.environment.baseUrl,
@@ -410,7 +415,10 @@ async function main() {
     checksum: process.env.REMOTE_APPROVAL_CHECKSUM,
     region: process.env.AWS_REGION || 'ap-northeast-2',
   };
-  const initial = await fetchVersionedRemoteApproval(approvalArgs);
+  const initial = await fetchVersionedRemoteApproval({
+    ...approvalArgs,
+    requireActiveWindow: false,
+  });
   let sourceApproval = null;
   if (initial.approval.resume) {
     const source = await fetchVersionedRemoteApproval({
@@ -434,34 +442,52 @@ async function main() {
     }
     sourceApproval = source.approval;
   }
+  const matrixStartedAt = new Date();
   const matrix = buildRemoteExecutionMatrix(
     initial.approval,
-    new Date(),
+    matrixStartedAt,
     process.env.REMOTE_EXECUTION_TIMESTAMP,
+    { validateEnvelopes: false },
   ).filter((run) => run.imageRole === imageRole);
   if (matrix.length === 0)
     throw new Error('approved execution matrix is empty');
+  const remainingMatrix = await selectRemainingRemoteRuns({
+    matrix,
+    approval: initial.approval,
+    currentIdentity: {
+      approvalId: initial.approval.approvalId,
+      versionId: initial.versionId,
+      checksum: initial.checksum,
+      executionTimestamp: process.env.REMOTE_EXECUTION_TIMESTAMP,
+    },
+    sourceApproval,
+  });
+  validateExecutionEnvelopes(
+    initial.approval,
+    remainingMatrix,
+    matrixStartedAt,
+  );
+  if (remainingMatrix.length === 0) {
+    process.stdout.write(`remote image role already completed: ${imageRole}\n`);
+    return;
+  }
+  await verifyLocalGates(repositoryRoot, initial.approval);
+  const initialInventory = await inspectRemoteInfrastructure(
+    initial.approval,
+    initial.approval.images[imageRole],
+  );
+  await verifyRemoteStorage(initial.approval);
+  assertGeneratorLifetimeHeadroom(
+    initial.approval,
+    remainingMatrix,
+    initialInventory.loadGenerator,
+    matrixStartedAt,
+  );
 
-  for (const run of matrix) {
+  for (const run of remainingMatrix) {
     const verified = await fetchVersionedRemoteApproval(approvalArgs);
     const approval = verified.approval;
     assertRunWithinApproval(run, approval);
-    if (
-      approval.resume &&
-      (await inspectSealedRemoteRun({
-        run,
-        approval,
-        currentIdentity: {
-          approvalId: approval.approvalId,
-          versionId: verified.versionId,
-          checksum: verified.checksum,
-        },
-        sourceApproval,
-      }))
-    ) {
-      process.stdout.write(`resume verified sealed run: ${run.runId}\n`);
-      continue;
-    }
     await verifyLocalGates(repositoryRoot, approval);
     const inventory = await inspectRemoteInfrastructure(
       approval,

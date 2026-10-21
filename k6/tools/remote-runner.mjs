@@ -11,7 +11,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fetchVersionedRemoteApproval } from './remote-approval-s3.mjs';
 import { verifyLocalGates } from './remote-gates.mjs';
 import { inspectRemoteInfrastructure, awsJson } from './remote-inventory.mjs';
-import { buildRemoteExecutionMatrix } from './remote-plan.mjs';
+import {
+  assertGeneratorLifetimeHeadroom,
+  buildRemoteExecutionMatrix,
+  validateExecutionEnvelopes,
+} from './remote-plan.mjs';
+import {
+  assertResumeScope,
+  selectRemainingRemoteRuns,
+} from './remote-resume.mjs';
 import { verifyRemoteStorage } from './remote-storage.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -316,13 +324,25 @@ async function main() {
     approvalId: args.approvalId,
     versionId: args.versionId,
     checksum: args.checksum,
+    requireActiveWindow: false,
   });
   const { approval } = verified;
-  await Promise.all([
-    verifyLocalGates(repositoryRoot, approval),
-    inspectRemoteInfrastructure(approval),
-    verifyRemoteStorage(approval),
-  ]);
+  let sourceApproval = null;
+  if (approval.resume) {
+    const source = await fetchVersionedRemoteApproval({
+      bucket,
+      approvalId: approval.resume.sourceApprovalId,
+      versionId: approval.resume.sourceVersionId,
+      checksum: approval.resume.sourceChecksum,
+      requireActiveWindow: false,
+    });
+    assertResumeScope(approval, source.approval, {
+      approvalId: approval.resume.sourceApprovalId,
+      versionId: approval.resume.sourceVersionId,
+      checksum: approval.resume.sourceChecksum,
+    });
+    sourceApproval = source.approval;
+  }
   const matrixStartedAt = new Date();
   const executionTimestamp =
     approval.resume?.executionTimestamp ||
@@ -331,23 +351,40 @@ async function main() {
     approval,
     matrixStartedAt,
     executionTimestamp,
+    { validateEnvelopes: false },
   );
-  if (args.command === 'validate') {
-    process.stdout.write(`${JSON.stringify(matrix, null, 2)}\n`);
-    return;
-  }
-
   const identity = {
     approvalId: args.approvalId,
     versionId: args.versionId,
     checksum: args.checksum,
     executionTimestamp,
   };
+  const remainingMatrix = await selectRemainingRemoteRuns({
+    matrix,
+    approval,
+    currentIdentity: identity,
+    sourceApproval,
+  });
+  validateExecutionEnvelopes(approval, remainingMatrix, matrixStartedAt);
+  await verifyLocalGates(repositoryRoot, approval);
+  if (remainingMatrix.length > 0) {
+    const [inventory] = await Promise.all([
+      inspectRemoteInfrastructure(approval),
+      verifyRemoteStorage(approval),
+    ]);
+    assertGeneratorLifetimeHeadroom(
+      approval,
+      remainingMatrix,
+      inventory.loadGenerator,
+      matrixStartedAt,
+    );
+  }
+  if (args.command === 'validate') {
+    process.stdout.write(`${JSON.stringify(remainingMatrix, null, 2)}\n`);
+    return;
+  }
   const runnerDocument = `${documentPrefix(approval)}-run-approved-load-test`;
-  const roles =
-    approval.mode.kind === 'comparison'
-      ? ['baseline', 'candidate']
-      : ['candidate'];
+  const roles = [...new Set(remainingMatrix.map((run) => run.imageRole))];
   for (const role of roles) {
     await executeRole(approval, identity, role, runnerDocument);
   }
@@ -357,7 +394,7 @@ async function main() {
     matrix,
   );
   process.stdout.write(
-    `${JSON.stringify({ status: verification.status, approvalId: args.approvalId, roles, runCount: matrix.length })}\n`,
+    `${JSON.stringify({ status: verification.status, approvalId: args.approvalId, roles, runCount: matrix.length, remainingRunCount: remainingMatrix.length })}\n`,
   );
 }
 

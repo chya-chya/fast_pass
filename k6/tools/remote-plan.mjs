@@ -7,6 +7,139 @@ const SCENARIO_ORDER = Object.freeze([
   'soak',
 ]);
 
+export const REMOTE_RUNTIME_LIMITS = Object.freeze({
+  applicationAccessTokenSeconds: 2 * 60 * 60,
+  trackingTtlSeconds: 24 * 60 * 60,
+  ssmRoleTimeoutSeconds: 24 * 60 * 60,
+  ssmSafetySeconds: 60 * 60,
+  roleDeploymentSeconds: 15 * 60,
+  conservativeFixtureRowsPerSecond: 1000,
+});
+
+const SCENARIO_OPERATION_ALLOWANCE_SECONDS = Object.freeze({
+  smoke: 10 * 60,
+  'consistency-inventory': 15 * 60,
+  'capacity-vu': 20 * 60,
+  'capacity-rps': 20 * 60,
+  spike: 42 * 60,
+  soak: 42 * 60,
+});
+
+export function estimateRunEnvelopeSeconds(run) {
+  const users = Number(run.env.USER_COUNT);
+  const seats = Number(run.env.SEAT_COUNT);
+  const reservations = Number(run.approvedRequests);
+  const operationAllowance = SCENARIO_OPERATION_ALLOWANCE_SECONDS[run.scenario];
+  if (
+    !Number.isFinite(run.durationSeconds) ||
+    run.durationSeconds <= 0 ||
+    ![users, seats, reservations].every(
+      (value) => Number.isSafeInteger(value) && value >= 0,
+    ) ||
+    !operationAllowance
+  ) {
+    throw new Error('remote run envelope inputs are invalid');
+  }
+  const fixtureRows = users + seats + reservations + 2;
+  const fixtureSeconds =
+    Math.ceil(
+      fixtureRows / REMOTE_RUNTIME_LIMITS.conservativeFixtureRowsPerSecond,
+    ) * 2;
+  return run.durationSeconds + operationAllowance + fixtureSeconds;
+}
+
+function requiredAccessTokenSeconds(run) {
+  return (
+    run.durationSeconds + SCENARIO_OPERATION_ALLOWANCE_SECONDS[run.scenario]
+  );
+}
+
+export function validateExecutionEnvelopes(approval, matrix, now) {
+  if (matrix.length === 0) return;
+  const instant = now.getTime();
+  const windowStart = Date.parse(approval.window.startsAt);
+  const windowEnd = Date.parse(approval.window.endsAt);
+  if (instant < windowStart || instant > windowEnd) {
+    throw new Error('approval window is not active');
+  }
+  const envelopes = matrix.map((run) => ({
+    run,
+    seconds: estimateRunEnvelopeSeconds(run),
+  }));
+  for (const { run, seconds } of envelopes) {
+    if (
+      requiredAccessTokenSeconds(run) >
+      REMOTE_RUNTIME_LIMITS.applicationAccessTokenSeconds
+    ) {
+      throw new Error(
+        `${run.runId} exceeds the two-hour application access-token TTL`,
+      );
+    }
+    if (seconds >= REMOTE_RUNTIME_LIMITS.trackingTtlSeconds) {
+      throw new Error(`${run.runId} exceeds the Redis tracking TTL`);
+    }
+  }
+
+  for (const role of new Set(matrix.map((run) => run.imageRole))) {
+    const roleSeconds =
+      REMOTE_RUNTIME_LIMITS.roleDeploymentSeconds +
+      envelopes
+        .filter(({ run }) => run.imageRole === role)
+        .reduce((total, item) => total + item.seconds, 0);
+    if (
+      roleSeconds >=
+      REMOTE_RUNTIME_LIMITS.ssmRoleTimeoutSeconds -
+        REMOTE_RUNTIME_LIMITS.ssmSafetySeconds
+    ) {
+      throw new Error(`${role} role envelope exceeds the safe SSM timeout`);
+    }
+  }
+
+  const executionSeconds =
+    REMOTE_RUNTIME_LIMITS.roleDeploymentSeconds *
+      new Set(matrix.map((run) => run.imageRole)).size +
+    envelopes.reduce((total, item) => total + item.seconds, 0);
+  if (
+    now.getTime() + executionSeconds * 1000 >
+    windowEnd
+  ) {
+    throw new Error('approval window is too short for the execution envelope');
+  }
+}
+
+export function executionEnvelopeSeconds(matrix) {
+  if (matrix.length === 0) return 0;
+  return (
+    REMOTE_RUNTIME_LIMITS.roleDeploymentSeconds *
+      new Set(matrix.map((run) => run.imageRole)).size +
+    matrix.reduce((total, run) => total + estimateRunEnvelopeSeconds(run), 0)
+  );
+}
+
+export function assertGeneratorLifetimeHeadroom(
+  approval,
+  matrix,
+  generator,
+  now = new Date(),
+) {
+  const launchTime = Date.parse(generator?.launchTime || '');
+  const approvedHours = approval.infrastructure.generatorMaxLifetimeHours;
+  if (
+    !Number.isFinite(launchTime) ||
+    !Number.isInteger(approvedHours) ||
+    approvedHours < 2 ||
+    generator?.maxLifetimeHours !== approvedHours
+  ) {
+    throw new Error('load generator lifetime descriptor is invalid');
+  }
+  const expiresAt = launchTime + approvedHours * 60 * 60 * 1000;
+  if (now.getTime() + executionEnvelopeSeconds(matrix) * 1000 >= expiresAt) {
+    throw new Error(
+      'load generator remaining lifetime is shorter than the execution envelope',
+    );
+  }
+}
+
 function assertIncreasing(values, label) {
   if (values.some((value, index) => index > 0 && value <= values[index - 1])) {
     throw new Error(`${label} must be strictly increasing`);
@@ -57,6 +190,22 @@ function safeRunPrefix(approvalId, role) {
 
 function pushIfAllowed(runs, allowed, run) {
   if (allowed.has(run.scenario)) runs.push(run);
+}
+
+export function longRunTokenTtlHours(allowed, profile) {
+  const scenarios = allowed instanceof Set ? allowed : new Set(allowed);
+  const longestRunSeconds = Math.max(
+    0,
+    ...(scenarios.has('soak') ? [profile.soakDurationSeconds] : []),
+    ...(scenarios.has('spike')
+      ? [
+          profile.spikeBaselineSeconds +
+            profile.spikePeakSeconds +
+            profile.spikeRecoverySeconds,
+        ]
+      : []),
+  );
+  return Math.max(2, Math.ceil((longestRunSeconds + 42 * 60) / 3600));
 }
 
 function buildImageRuns(approval, imageRole, timestamp) {
@@ -191,16 +340,7 @@ function buildImageRuns(approval, imageRole, timestamp) {
     });
   }
 
-  const longestRunSeconds = Math.max(
-    profile.soakDurationSeconds,
-    profile.spikeBaselineSeconds +
-      profile.spikePeakSeconds +
-      profile.spikeRecoverySeconds,
-  );
-  const tokenTtlHours = Math.max(
-    2,
-    Math.ceil((longestRunSeconds + 42 * 60) / 3600),
-  );
+  const tokenTtlHours = longRunTokenTtlHours(allowed, profile);
   const longCommon = {
     ...rangeFixtureEnv,
     LOAD_PRE_ALLOCATED_VUS: String(profile.preAllocatedVus),
@@ -307,20 +447,26 @@ export function validateExecutionProfile(approval) {
   ) {
     throw new Error('110 percent exploration exceeds approved RPS');
   }
+  const approvedLongRunSeconds = [];
+  if (approval.scenarios.includes('spike')) {
+    approvedLongRunSeconds.push(
+      profile.spikeBaselineSeconds +
+        profile.spikePeakSeconds +
+        profile.spikeRecoverySeconds,
+    );
+  }
+  if (approval.scenarios.includes('soak')) {
+    approvedLongRunSeconds.push(profile.soakDurationSeconds);
+  }
   if (
-    Math.ceil(
-      (Math.max(
-        profile.soakDurationSeconds,
-        profile.spikeBaselineSeconds +
-          profile.spikePeakSeconds +
-          profile.spikeRecoverySeconds,
-      ) +
-        42 * 60) /
-        3600,
-    ) > 24
+    approvedLongRunSeconds.some(
+      (seconds) =>
+        seconds + SCENARIO_OPERATION_ALLOWANCE_SECONDS.soak >
+        REMOTE_RUNTIME_LIMITS.applicationAccessTokenSeconds,
+    )
   ) {
     throw new Error(
-      'approved long run cannot fit the maximum access-token TTL',
+      'approved long run cannot fit the two-hour application access-token TTL',
     );
   }
   const spikeBudget = Math.ceil(
@@ -355,6 +501,7 @@ export function buildRemoteExecutionMatrix(
   approval,
   now = new Date(),
   executionTimestamp = now.toISOString().replace(/\D/g, '').slice(0, 17),
+  options = {},
 ) {
   validateExecutionProfile(approval);
   if (!/^\d{17}$/.test(executionTimestamp)) {
@@ -388,15 +535,8 @@ export function buildRemoteExecutionMatrix(
       );
     }
   }
-  const totalSeconds = matrix.reduce(
-    (sum, run) => sum + run.durationSeconds,
-    0,
-  );
-  if (
-    now.getTime() + totalSeconds * 1000 >
-    Date.parse(approval.window.endsAt)
-  ) {
-    throw new Error('approval window is too short for the execution matrix');
+  if (options.validateEnvelopes !== false) {
+    validateExecutionEnvelopes(approval, matrix, now);
   }
   return matrix;
 }

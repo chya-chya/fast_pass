@@ -176,6 +176,7 @@
         "databaseClass",
         "redisNodeType",
         "generatorInstanceType",
+        "generatorMaxLifetimeHours",
         "albScheme",
         "databasePoolPerWorker"
       ],
@@ -186,6 +187,11 @@
         "databaseClass": { "const": "db.t4g.micro" },
         "redisNodeType": { "const": "cache.t3.micro" },
         "generatorInstanceType": { "const": "c7i-flex.large" },
+        "generatorMaxLifetimeHours": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 26
+        },
         "albScheme": { "const": "internal" },
         "databasePoolPerWorker": { "const": 4 }
       }

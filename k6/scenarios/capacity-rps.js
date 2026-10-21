@@ -26,6 +26,7 @@ import {
   fixtureId,
   rangeAssignment,
 } from '../lib/fixture-range.js';
+import { assertRemoteLoadWindow } from '../lib/load-window.js';
 import {
   recordReservationOutcome,
   recordRpsRequestStarted,
@@ -142,6 +143,7 @@ export function setup() {
       );
       tokens.push(loginBody.accessToken);
     }
+    assertRemoteLoadWindow(executionConfig, __ENV);
     return {
       tokens,
       userCount: executionConfig.userCount,

@@ -101,7 +101,10 @@ export async function inspectRemoteInfrastructure(
     tagValue(generator, 'FastPassRunnerDigest') !==
       approval.images.runner.digest ||
     tagValue(generator, 'FastPassRunnerBuildSha') !==
-      approval.images.runner.gitSha
+      approval.images.runner.gitSha ||
+    Number(tagValue(generator, 'FastPassMaxLifetimeHours')) !==
+      infrastructure.generatorMaxLifetimeHours ||
+    !Number.isFinite(Date.parse(generator.LaunchTime || ''))
   ) {
     throw new Error('load generator does not match approval');
   }
@@ -190,6 +193,8 @@ export async function inspectRemoteInfrastructure(
       id: generator.InstanceId,
       type: generator.InstanceType,
       state: generator.State.Name,
+      launchTime: generator.LaunchTime,
+      maxLifetimeHours: Number(tagValue(generator, 'FastPassMaxLifetimeHours')),
     },
     database: {
       identifier: databaseInstance.DBInstanceIdentifier,

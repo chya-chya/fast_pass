@@ -31,7 +31,10 @@ const argumentsList = [
 function outputs(generatorId = 'i-00000000000000008') {
   const value = (entry) => ({ value: entry });
   return {
-    environment_descriptor: value({ environment_id: 'aws-free-01' }),
+    environment_descriptor: value({
+      environment_id: 'aws-free-01',
+      load_generator_max_lifetime_hours: 26,
+    }),
     image_descriptor: value({
       candidate: {
         git_sha: '1'.repeat(40),
@@ -115,10 +118,16 @@ test('binds all resume lineage fields into the draft', async () => {
       outputs('i-00000000000000007'),
     )
   ).draft;
+  const resumeOutputs = outputs();
+  resumeOutputs.image_descriptor.value.runner = {
+    git_sha: '9'.repeat(40),
+    digest: `sha256:${'9'.repeat(64)}`,
+  };
   const draft = await buildCandidateApprovalDraft(
     parseDraftArguments(resumeArguments),
-    outputs(),
+    resumeOutputs,
     source,
   );
   assert.equal(draft.draft.resume.sourceVersionId, 'source-version');
+  assert.deepEqual(draft.draft.images.runner, source.images.runner);
 });

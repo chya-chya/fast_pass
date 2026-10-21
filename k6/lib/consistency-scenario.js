@@ -22,6 +22,7 @@ import {
 } from './consistency.js';
 import { transientFixtureEmail } from './fixture-identity.js';
 import { fixtureEmail, fixtureId } from './fixture-range.js';
+import { assertRemoteLoadWindow } from './load-window.js';
 import { recordReservationOutcome, requestStartOffset } from './metrics.js';
 
 function randomText(length) {
@@ -55,6 +56,7 @@ export function setupConsistency(config, preflightToken) {
       );
       tokens.push(body.accessToken);
     }
+    assertRemoteLoadWindow(config, __ENV);
     return {
       tokens,
       userIds: Array.from({ length: config.userCount }, (_, index) =>

@@ -9,6 +9,7 @@ import {
   estimateSpikeRequestBudget,
   estimateSpikeRequests,
   longRunIterationIndices,
+  maximumRateThreshold,
   spikePhaseOffsets,
 } from '../lib/endurance.js';
 
@@ -105,4 +106,10 @@ test('does not treat reduced long-run checks as qualification', () => {
       failedMetrics: [],
     },
   );
+});
+
+test('builds an inclusive error-rate threshold from the approved maximum', () => {
+  assert.equal(maximumRateThreshold(0.001), 'rate<=0.001');
+  assert.equal(maximumRateThreshold(0), 'rate<=0');
+  assert.throws(() => maximumRateThreshold(-0.1), /between zero and one/);
 });

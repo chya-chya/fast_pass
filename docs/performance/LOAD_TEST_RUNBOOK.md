@@ -92,7 +92,11 @@ required TTL = setup allowance + load duration + drain allowance
              + audit allowance + safety allowance
 ```
 
-기본 `LOAD_ACCESS_TOKEN_TTL=2h`는 기본 Spike의 약 47분 30초와 기본 Soak의 102분 요구량을 덮는다. 부족하면 실행을 거부한다. 명시적 테스트 TTL은 `K6_ACCESS_TOKEN_TTL_SECONDS`로 앱에 전달하며 `NODE_ENV!=production`, `ENABLE_TEST_PREFLIGHT=true`, `TEST_ENVIRONMENT=local-disposable`일 때만 5분~24시간 범위에서 허용한다. 운영·공유 환경에서는 앱 시작 단계에서 거부한다. preflight health와 metadata의 TTL이 일치해야 한다. 401은 expected conflict나 capacity 오류가 아니라 예상하지 않은 오류로 집계하며 자동 중단 대상이다.
+원격 앱의 `K6_ACCESS_TOKEN_TTL_SECONDS`는 2시간으로 고정되어 있다. 따라서 각 Run은 부하 시간에 시나리오별 setup·drain·audit·안전 여유를 더한 시간이 2시간 이하여야 하며, 기본 Soak의 요구량은 102분이다. 승인 계획 단계에서 이를 넘으면 실행 전에 거부한다. 로컬의 명시적 테스트 TTL override는 `NODE_ENV!=production`, `ENABLE_TEST_PREFLIGHT=true`, `TEST_ENVIRONMENT=local-disposable`일 때만 5분~24시간 범위에서 허용한다. 운영·공유 환경에서는 앱 시작 단계에서 거부한다. preflight health와 metadata의 TTL이 일치해야 한다. 401은 expected conflict나 capacity 오류가 아니라 예상하지 않은 오류로 집계하며 자동 중단 대상이다.
+
+원격 실행 계획은 fixture 행 수를 초당 1,000행으로 보수적으로 환산해 seed와 exact cleanup 시간을 각각 더한다. 여기에 Smoke 10분, 정합성 15분, VU·RPS 20분, Spike·Soak 42분의 setup·drain·audit·cleanup 여유를 적용한다. 개별 Run envelope는 Redis tracking TTL 24시간보다 짧아야 하고, 이미지 role별 전체 envelope는 배포 15분을 포함해 SSM 24시간 제한보다 최소 1시간 짧아야 한다. 승인 시간창도 모든 role의 이 envelope 전체를 포함해야 한다.
+
+발생기의 `LaunchTime`과 승인된 최대 수명을 AWS에서 실행 직전에 다시 확인하며, 남은 전체 실행 envelope보다 수명이 짧으면 시작하지 않는다. 재개 실행은 checksum이 검증된 `FINALIZED` Run을 먼저 제외하고 아직 남은 Run에 대해서만 승인 시간창·SSM·발생기 잔여 수명을 계산한다. 이미 봉인된 Run의 원래 Run ID와 승인 lineage 검증은 그대로 유지한다.
 
 ## 동일 시간 범위 모니터링
 
@@ -117,7 +121,7 @@ EC2 CPU credit은 기본 모니터링의 5분 datapoint를 사용한다. preflig
 
 | 조건                 | 초기 기준                                  | 자동 동작                                                      |
 | -------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| 예상하지 않은 오류   | delta 오류율 > 0.1%, 3회                   | watchdog 중단; k6 `unexpected_error_rate`도 6초 이후 즉시 중단 |
+| 예상하지 않은 오류   | 승인 오류율 초과, 3회                      | watchdog 중단; k6도 동일한 승인값 이하만 허용                  |
 | ALB unhealthy target | 1개 이상, 3회                              | 원격 adapter가 k6 중단; adapter 없으면 preflight 거부          |
 | DB connection        | `numbackends / max_connections > 85%`, 3회 | watchdog 중단                                                  |
 | RDS CPU              | 서로 다른 1분 datapoint가 기준 초과, 3회   | watchdog 중단; 표본 부족 qualification은 무효                  |

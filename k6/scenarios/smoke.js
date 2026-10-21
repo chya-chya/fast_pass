@@ -17,6 +17,7 @@ import { loadConfig } from '../lib/config.js';
 import { requestIdFor } from '../lib/consistency.js';
 import { transientFixtureEmail } from '../lib/fixture-identity.js';
 import { fixtureEmail, fixtureId } from '../lib/fixture-range.js';
+import { assertRemoteLoadWindow } from '../lib/load-window.js';
 import { recordReservationOutcome } from '../lib/metrics.js';
 import { createHandleSummary } from '../lib/summary.js';
 
@@ -70,6 +71,7 @@ export function setup() {
       );
       tokens.push(body.accessToken);
     }
+    assertRemoteLoadWindow(config, __ENV);
     return {
       tokens,
       userIds: Array.from({ length: config.userCount }, (_, index) =>

@@ -124,6 +124,7 @@ data "aws_iam_policy_document" "load_generator" {
       values = [
         "runs/summary/*",
         "runs/raw/*",
+        "runs/recovery/*",
       ]
     }
   }
