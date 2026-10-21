@@ -814,7 +814,8 @@ export class ReservationService {
     return updatedReservation;
   }
 
-  async expireOverdueReservations(thresholdDate: Date) {
+  async expireOverdueReservations(thresholdDate: Date, signal?: AbortSignal) {
+    if (signal?.aborted) throw new Error('reservation expiration lock lost');
     // 만료 대상 예약 조회
     const overdueReservations = await this.prisma.reservation.findMany({
       where: {
@@ -828,6 +829,7 @@ export class ReservationService {
 
     let count = 0;
     for (const reservation of overdueReservations) {
+      if (signal?.aborted) throw new Error('reservation expiration lock lost');
       try {
         await this.releaseReservation(reservation.id);
         count++;
@@ -841,7 +843,8 @@ export class ReservationService {
 
   // 주기적으로 실행될 잔여 좌석 동기화 로직
   // Performance 테이블의 availableSeats를 실제 Seat 테이블의 status를 기반으로 갱신
-  async syncAvailableSeats() {
+  async syncAvailableSeats(signal?: AbortSignal) {
+    if (signal?.aborted) throw new Error('seat sync lock lost');
     // 1. 모든 Performance ID 조회 (혹은 활성 Performance만 조회)
     // 여기서는 간단하게 count 집계가 필요한 Performance들을 찾습니다.
     // groupBy로 성능 최적화: PerformanceId별 AVAILABLE 좌석 수 집계
@@ -857,12 +860,13 @@ export class ReservationService {
 
     // 2. Performance 테이블 업데이트
     const results = await Promise.allSettled(
-      seatCounts.map((group) =>
-        this.prisma.performance.update({
+      seatCounts.map((group) => {
+        if (signal?.aborted) throw new Error('seat sync lock lost');
+        return this.prisma.performance.update({
           where: { id: group.performanceId },
           data: { availableSeats: group._count.id },
-        }),
-      ),
+        });
+      }),
     );
 
     const updatedCount = results.filter((r) => r.status === 'fulfilled').length;

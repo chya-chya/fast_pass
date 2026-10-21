@@ -2,6 +2,9 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression, Interval } from '@nestjs/schedule';
 import { ReservationService } from './reservation.service';
 import { ReservationMetricsService } from './reservation-metrics.service';
+import { SchedulerLockService } from './scheduler-lock.service';
+
+const SCHEDULER_LOCK_DURATION_MS = 30_000;
 
 @Injectable()
 export class ReservationScheduler {
@@ -10,22 +13,34 @@ export class ReservationScheduler {
 
   constructor(
     private readonly reservationService: ReservationService,
+    private readonly schedulerLock: SchedulerLockService,
     @Optional()
     private readonly reservationMetrics?: ReservationMetricsService,
   ) {}
 
+  private lockResource(task: 'expiration' | 'seat-sync'): string {
+    const prefix = process.env.REDIS_KEY_PREFIX || '';
+    return `${prefix}locks:reservation-scheduler:${task}`;
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async handleExpiredReservations() {
-    this.logger.log('Checking for expired reservations...');
-    const now = new Date();
-    const threshold = new Date(now.getTime() - 10 * 60 * 1000); // 10분 전
-
     try {
-      const count =
-        await this.reservationService.expireOverdueReservations(threshold);
-      if (count > 0) {
-        this.logger.log(`Expired ${count} pending reservations.`);
-      }
+      await this.schedulerLock.runExclusive(
+        this.lockResource('expiration'),
+        SCHEDULER_LOCK_DURATION_MS,
+        async (signal) => {
+          this.logger.log('Checking for expired reservations...');
+          const threshold = new Date(Date.now() - 10 * 60 * 1000);
+          const count = await this.reservationService.expireOverdueReservations(
+            threshold,
+            signal,
+          );
+          if (count > 0) {
+            this.logger.log(`Expired ${count} pending reservations.`);
+          }
+        },
+      );
     } catch (error) {
       this.logger.error('Failed to expire reservations', error);
     }
@@ -67,7 +82,11 @@ export class ReservationScheduler {
   @Interval(5000)
   async handleSeatSync() {
     try {
-      await this.reservationService.syncAvailableSeats();
+      await this.schedulerLock.runExclusive(
+        this.lockResource('seat-sync'),
+        SCHEDULER_LOCK_DURATION_MS,
+        (signal) => this.reservationService.syncAvailableSeats(signal),
+      );
     } catch (error) {
       this.logger.error('Failed to sync available seats', error);
     }
