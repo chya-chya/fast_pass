@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-rps-20261010030707-18786",
+  "scenario": "capacity-rps",
+  "dataset": {
+    "cacheProfile": "warm",
+    "vus": 10,
+    "iterationsPerVu": null,
+    "totalRequests": null,
+    "seatCount": 64,
+    "expectedAccepted": null,
+    "expectedConflicts": null,
+    "requestsPerSeat": null,
+    "capacityProfile": "unique-seat",
+    "userBehavior": null,
+    "thinkTime": null,
+    "requestBudget": 0,
+    "rpsTestProfile": "explore",
+    "rpsDataProfile": "unique-seat",
+    "rpsRequestBudget": 64,
+    "preAllocatedVUs": 4,
+    "maxVUs": 10
+  },
+  "capacityStages": null,
+  "rpsStages": [
+    {
+      "stage": 1,
+      "targetOfferedRps": 1,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 1,
+      "completedResponses": 1,
+      "startedReservationRps": 0.5,
+      "completedResponseRps": 0.5
+    },
+    {
+      "stage": 2,
+      "targetOfferedRps": 2,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 3,
+      "completedResponses": 3,
+      "startedReservationRps": 1.5,
+      "completedResponseRps": 1.5
+    },
+    {
+      "stage": 3,
+      "targetOfferedRps": 3,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 6,
+      "completedResponses": 6,
+      "startedReservationRps": 3,
+      "completedResponseRps": 3
+    },
+    {
+      "stage": 4,
+      "targetOfferedRps": 4,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 3000,
+      "startedRequests": 9,
+      "completedResponses": 9,
+      "startedReservationRps": 3,
+      "completedResponseRps": 3
+    }
+  ],
+  "rpsLoad": {
+    "timeUnit": "1s",
+    "targetOfferedRps": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "offeredIterations": 19,
+    "startedReservationRequests": 19,
+    "completedResponses": 19,
+    "droppedIterations": 0,
+    "offeredRps": 2.111111111111111,
+    "startedReservationRps": 2.111111111111111,
+    "completedResponseRps": 2.111111111111111,
+    "serverEnqueued": null,
+    "serverEnqueueRps": null,
+    "serverEnqueueSource": "server-metrics.json"
+  },
+  "generatedAt": "2026-10-10T03:07:24.336Z",
+  "thresholdPassed": true,
+  "thresholdFailures": [],
+  "verdict": {
+    "kind": "exploratory",
+    "status": "LIMIT_NOT_FOUND",
+    "regressionStatus": "NOT_APPLICABLE",
+    "reasons": [],
+    "failedMetrics": []
+  },
+  "metrics": {
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 38,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate==1": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 3.106,
+        "med": 17.003,
+        "max": 113.372,
+        "p(90)": 110.60199999999999,
+        "p(95)": 111.4664,
+        "p(99)": 112.58132,
+        "avg": 44.05024444444445
+      },
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "fails": 45,
+        "rate": 0,
+        "passes": 0
+      },
+      "thresholds": {}
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 19,
+        "rate": 1.7663330962108623
+      },
+      "thresholds": {}
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 4,
+        "min": 4,
+        "max": 4
+      },
+      "thresholds": {}
+    },
+    "accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 19,
+        "rate": 1.7663330962108623
+      },
+      "thresholds": {}
+    },
+    "unexpected_error": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "timeout": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "request_start_offset_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 8242.44,
+        "avg": 5547.315789473684,
+        "min": 1503,
+        "med": 5836,
+        "max": 8295,
+        "p(90)": 7803,
+        "p(95)": 8032.2
+      },
+      "thresholds": {}
+    },
+    "accepted_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 13.297,
+        "max": 17.018,
+        "p(90)": 16.9238,
+        "p(95)": 17.0045,
+        "p(99)": 17.0153,
+        "avg": 12.697421052631583,
+        "min": 7.485
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "expected_conflict_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "avg": 0,
+        "min": 0
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "unexpected_error_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        },
+        "p(99)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "reservation_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 1.7663330962108623,
+        "count": 19
+      },
+      "thresholds": {}
+    },
+    "reservation_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 19,
+        "rate": 1.7663330962108623
+      },
+      "thresholds": {}
+    },
+    "rps_stage_1_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.0929648998005717
+      },
+      "thresholds": {}
+    },
+    "rps_stage_2_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3,
+        "rate": 0.2788946994017151
+      },
+      "thresholds": {}
+    },
+    "rps_stage_3_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 6,
+        "rate": 0.5577893988034301
+      },
+      "thresholds": {}
+    },
+    "rps_stage_4_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.8366840982051452,
+        "count": 9
+      },
+      "thresholds": {}
+    },
+    "rps_stage_1_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.0929648998005717
+      },
+      "thresholds": {}
+    },
+    "rps_stage_2_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3,
+        "rate": 0.2788946994017151
+      },
+      "thresholds": {}
+    },
+    "rps_stage_3_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 6,
+        "rate": 0.5577893988034301
+      },
+      "thresholds": {}
+    },
+    "rps_stage_4_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 9,
+        "rate": 0.8366840982051452
+      },
+      "thresholds": {}
+    }
+  }
+}

@@ -1,0 +1,19 @@
+aws_region            = "ap-northeast-2"
+environment_id        = "aws-free-01"
+app_build_sha         = "4f78e46cf16ac488e847122a6e5bb3ea26351bf5"
+# 1차 적용은 null/false로 ECR과 기반 인프라만 만듭니다.
+# 이미지를 push한 뒤 두 값을 실제 sha256 digest로 바꾸고 발생기를 활성화합니다.
+app_image_digest      = null
+runner_image_digest   = null
+runner_build_sha      = null
+enable_load_generator = false
+enable_runner_image_build = false
+
+app_instance_type  = "t3.small"
+app_instance_count = 7
+pm2_app_instances  = 2
+db_instance_class  = "db.t4g.micro"
+redis_node_type    = "cache.t3.micro"
+
+monthly_budget_usd = 10
+# budget_notification_email = "you@example.com"

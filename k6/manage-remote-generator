@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repository_root="$(cd "${script_dir}/.." && pwd -P)"
+terraform_dir="${repository_root}/infra/load-test"
+region='ap-northeast-2'
+
+usage() {
+  echo 'usage: k6/manage-remote-generator plan-start|start|plan-stop|stop [--execute]' >&2
+  exit 64
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+command_name="$1"
+execute_flag="${2:-}"
+case "${command_name}" in
+  plan-start|plan-stop)
+    [[ -z "${execute_flag}" ]] || usage
+    ;;
+  start|stop)
+    [[ "${execute_flag}" == '--execute' ]] || usage
+    ;;
+  *) usage ;;
+esac
+
+operation="${command_name#plan-}"
+target_enabled='false'
+[[ "${operation}" == 'start' ]] && target_enabled='true'
+
+temporary_directory="$(mktemp -d)"
+cleanup() {
+  if [[ -n "${temporary_directory:-}" && -d "${temporary_directory}" ]]; then
+    rm -rf -- "${temporary_directory}"
+  fi
+}
+trap cleanup EXIT
+
+terraform -chdir="${terraform_dir}" init -input=false
+
+expected_account="$(terraform -chdir="${terraform_dir}" output -raw aws_account_id)"
+actual_account="$(aws --region "${region}" sts get-caller-identity --query Account --output text --no-cli-pager)"
+if [[ ! "${expected_account}" =~ ^[0-9]{12}$ || "${actual_account}" != "${expected_account}" ]]; then
+  echo 'generator lifecycle rejected: AWS account does not match Terraform state' >&2
+  exit 1
+fi
+
+plan_path="${temporary_directory}/generator.tfplan"
+plan_json="${temporary_directory}/generator-plan.json"
+terraform -chdir="${terraform_dir}" plan \
+  -input=false \
+  -lock-timeout=2m \
+  -var="enable_load_generator=${target_enabled}" \
+  -out="${plan_path}"
+terraform -chdir="${terraform_dir}" show -json "${plan_path}" >"${plan_json}"
+node "${repository_root}/k6/tools/verify-generator-plan.mjs" "${plan_json}" "${operation}"
+
+if [[ "${command_name}" == plan-* ]]; then
+  exit 0
+fi
+
+terraform -chdir="${terraform_dir}" apply -input=false -auto-approve "${plan_path}"
+
+if [[ "${operation}" == 'stop' ]]; then
+  printf '{"status":"TERMINATED","region":"%s","accountId":"%s"}\n' \
+    "${region}" "${actual_account}"
+  exit 0
+fi
+
+instance_id="$(terraform -chdir="${terraform_dir}" output -raw load_generator_instance_id)"
+if [[ ! "${instance_id}" =~ ^i-[0-9a-f]+$ ]]; then
+  echo 'generator lifecycle rejected: Terraform did not return an instance ID' >&2
+  exit 1
+fi
+
+aws --region "${region}" ec2 wait instance-running --instance-ids "${instance_id}"
+
+managed='false'
+for _ in {1..40}; do
+  ping_status="$(aws --region "${region}" ssm describe-instance-information \
+    --filters "Key=InstanceIds,Values=${instance_id}" \
+    --query 'InstanceInformationList[0].PingStatus' \
+    --output text --no-cli-pager 2>/dev/null || true)"
+  if [[ "${ping_status}" == 'Online' ]]; then
+    managed='true'
+    break
+  fi
+  sleep 15
+done
+if [[ "${managed}" != 'true' ]]; then
+  echo 'generator lifecycle rejected: SSM did not become ready within 10 minutes' >&2
+  exit 1
+fi
+
+command_id="$(aws --region "${region}" ssm send-command \
+  --document-name AWS-RunShellScript \
+  --instance-ids "${instance_id}" \
+  --parameters 'commands=["set -euo pipefail","cloud-init status --wait","test -s /etc/fast-pass-runner-image","runner_image=$(cat /etc/fast-pass-runner-image)","case $runner_image in *@sha256:*) ;; *) exit 1 ;; esac","docker image inspect $runner_image >/dev/null"]' \
+  --query 'Command.CommandId' --output text --no-cli-pager)"
+aws --region "${region}" ssm wait command-executed \
+  --command-id "${command_id}" \
+  --instance-id "${instance_id}" \
+  --no-cli-pager
+
+runner_digest="$(terraform -chdir="${terraform_dir}" output -json image_descriptor | jq -r '.runner.digest')"
+automatic_termination_hours="$(terraform -chdir="${terraform_dir}" output -json environment_descriptor | jq -r '.load_generator_max_lifetime_hours')"
+printf '{"status":"READY","instanceId":"%s","region":"%s","accountId":"%s","runnerDigest":"%s","automaticTerminationHours":%s}\n' \
+  "${instance_id}" "${region}" "${actual_account}" "${runner_digest}" "${automatic_termination_hours}"

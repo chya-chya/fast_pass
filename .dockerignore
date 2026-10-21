@@ -7,3 +7,10 @@ Dockerfile
 .env
 .vscode
 /portfolio
+k6/results
+k6/remote/node_modules
+k6/remote/remote-approval.json
+infra/load-test/.terraform
+infra/load-test/terraform.tfvars
+infra/load-test/*.tfstate*
+infra/load-test/*.tfplan

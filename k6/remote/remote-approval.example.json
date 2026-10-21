@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "approvalId": "replace-me",
+  "approvedBy": "replace-with-approver",
+  "responsibility": {
+    "costOwner": "replace-with-cost-owner",
+    "incidentOwner": "replace-with-incident-owner"
+  },
+  "environment": {
+    "id": "aws-load-01",
+    "classification": "remote-disposable",
+    "production": false,
+    "baseUrl": "http://internal-alb.ap-northeast-2.elb.amazonaws.com",
+    "awsAccountId": "000000000000",
+    "region": "ap-northeast-2",
+    "artifactBucket": "replace-artifact-bucket",
+    "approvalBucket": "replace-artifact-bucket",
+    "approvalKey": "approvals/replace-me.json",
+    "targetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/replace/0000000000000000",
+    "appInstanceIds": [
+      "i-00000000000000001",
+      "i-00000000000000002",
+      "i-00000000000000003",
+      "i-00000000000000004",
+      "i-00000000000000005",
+      "i-00000000000000006",
+      "i-00000000000000007"
+    ],
+    "loadGeneratorInstanceId": "i-00000000000000008",
+    "databaseIdentifier": "fast-pass-free",
+    "databaseName": "fast_pass_k6_aws_load_01",
+    "redisReplicationGroupId": "fast-pass-free",
+    "applicationParameterName": "/fast-pass-free/aws-load-01/app",
+    "expectedMigrationId": "20261012090000_remote_test_tracking"
+  },
+  "window": {
+    "startsAt": "2099-01-01T00:00:00Z",
+    "endsAt": "2099-01-01T08:00:00Z"
+  },
+  "mode": {
+    "kind": "candidate-only",
+    "baselineAbsenceReason": "No approved immutable baseline exists.",
+    "baselineAbsenceEvidence": "The approval record links to the release decision."
+  },
+  "images": {
+    "candidate": {
+      "gitSha": "0000000000000000000000000000000000000000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "runner": {
+      "gitSha": "0000000000000000000000000000000000000000",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "infrastructure": {
+    "appInstanceType": "t3.small",
+    "appInstanceCount": 7,
+    "pm2WorkersPerInstance": 2,
+    "databaseClass": "db.t4g.micro",
+    "redisNodeType": "cache.t3.micro",
+    "generatorInstanceType": "c7i-flex.large",
+    "generatorMaxLifetimeHours": 26,
+    "albScheme": "internal",
+    "databasePoolPerWorker": 4
+  },
+  "limits": {
+    "maxVus": 2000,
+    "maxRps": 1000,
+    "maxDurationSeconds": 7200,
+    "maxRequests": 1500000,
+    "maxFixtureUsers": 10000,
+    "maxFixtureSeats": 1500000,
+    "maxFixtureDatabaseRows": 3500000,
+    "maxFixtureDatabaseBytes": 2147483648,
+    "maxFixtureRedisBytes": 1073741824
+  },
+  "execution": {
+    "smokeVus": 1,
+    "smokeDurationSeconds": 5,
+    "consistencyVus": 20,
+    "consistencySeats": 10,
+    "capacityVuStages": [10, 25, 50, 100],
+    "capacityVuRampSeconds": 10,
+    "capacityVuHoldSeconds": 30,
+    "capacityVuThinkSeconds": 5,
+    "capacityVuRequestBudget": 5000,
+    "rpsExploreStages": [25, 50, 75, 100],
+    "rpsRampSeconds": 10,
+    "rpsHoldSeconds": 30,
+    "rpsConfirmationSeconds": 180,
+    "rpsRequestBudget": 20000,
+    "stableRps": 100,
+    "preAllocatedVus": 100,
+    "maxVus": 500,
+    "allowOverload110": false,
+    "spikeBaselineRps": 65,
+    "spikePeakRps": 110,
+    "spikeBaselineSeconds": 60,
+    "spikePeakSeconds": 30,
+    "spikeRecoverySeconds": 90,
+    "soakRatePercent": 65,
+    "soakDurationSeconds": 3600
+  },
+  "abort": {
+    "consecutiveSamples": 3,
+    "unexpectedErrorRate": 0.001,
+    "databaseConnectionRatio": 0.85,
+    "databaseCpuPercent": 90,
+    "redisCpuPercent": 90,
+    "redisMemoryPercent": 90,
+    "eventLoopLagMs": 200,
+    "queueDepth": 10000,
+    "generatorCpuPercent": 90,
+    "minimumCpuCreditBalance": 10,
+    "redisEvictions": 0,
+    "unhealthyTargets": 0,
+    "processRestarts": 0
+  },
+  "cleanup": { "authorized": true },
+  "retention": { "summaries": "permanent", "rawTimeseriesDays": 90 },
+  "gates": {
+    "phase3": "INTEGRATION_VERIFIED",
+    "phase4": "INTEGRATION_VERIFIED",
+    "phase7": "INTEGRATION_VERIFIED",
+    "phase11": "INTEGRATION_VERIFIED",
+    "noGo": false
+  },
+  "scenarios": [
+    "smoke",
+    "consistency-inventory",
+    "capacity-vu",
+    "capacity-rps",
+    "spike",
+    "soak"
+  ]
+}

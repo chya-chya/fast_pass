@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-spike-20261010040009-61892",
+  "testEnvId": "k6int2026101004000961892",
+  "performanceId": "cmv1v91ca000bwy7tt0hi5whn",
+  "auditedAt": "2026-10-10T04:00:23.803Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1100
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 11,
+    "enqueue": 11,
+    "processingStarted": 11,
+    "processedSuccess": 11,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 11,
+    "distinctSeatCount": 11,
+    "duplicateSeats": [],
+    "duplicateActiveSeats": [],
+    "seatStatusDistribution": {
+      "AVAILABLE": 53,
+      "HELD": 11
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 11
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-spike-20261010040009-61892-req-000000",
+      "local-spike-20261010040009-61892-req-000001",
+      "local-spike-20261010040009-61892-req-000002",
+      "local-spike-20261010040009-61892-req-000003",
+      "local-spike-20261010040009-61892-req-000004",
+      "local-spike-20261010040009-61892-req-000005",
+      "local-spike-20261010040009-61892-req-000006",
+      "local-spike-20261010040009-61892-req-000007",
+      "local-spike-20261010040009-61892-req-000008",
+      "local-spike-20261010040009-61892-req-000009",
+      "local-spike-20261010040009-61892-req-000010"
+    ],
+    "acceptedReservationIds": [
+      "0376d1a5-c0fe-4224-8b3a-50711a3acb35",
+      "0e0d8727-8d64-4f4f-8756-72ab9005407c",
+      "15f560f7-d72d-4cdf-a341-855d3dcf774d",
+      "16c52ba4-ffe7-481f-89e0-b26c8019447c",
+      "2f00a615-1120-4b85-8612-44ef88d27db7",
+      "43f2bf79-4008-4ff9-8d0b-10205d13560e",
+      "791ba63a-74dc-41df-9f69-da816a8fb520",
+      "b69db72b-4503-4569-b5c9-ff7a1010e909",
+      "eefa9594-472d-4b60-84c3-2719fde26d83",
+      "fb1f6f15-c2de-4a17-adda-64909cb33e4a",
+      "fed66b06-02b0-4e14-a401-6c14e3e6e37b"
+    ],
+    "processedReservationIds": [
+      "0376d1a5-c0fe-4224-8b3a-50711a3acb35",
+      "0e0d8727-8d64-4f4f-8756-72ab9005407c",
+      "15f560f7-d72d-4cdf-a341-855d3dcf774d",
+      "16c52ba4-ffe7-481f-89e0-b26c8019447c",
+      "2f00a615-1120-4b85-8612-44ef88d27db7",
+      "43f2bf79-4008-4ff9-8d0b-10205d13560e",
+      "791ba63a-74dc-41df-9f69-da816a8fb520",
+      "b69db72b-4503-4569-b5c9-ff7a1010e909",
+      "eefa9594-472d-4b60-84c3-2719fde26d83",
+      "fb1f6f15-c2de-4a17-adda-64909cb33e4a",
+      "fed66b06-02b0-4e14-a401-6c14e3e6e37b"
+    ],
+    "persistedReservationIds": [
+      "0376d1a5-c0fe-4224-8b3a-50711a3acb35",
+      "0e0d8727-8d64-4f4f-8756-72ab9005407c",
+      "15f560f7-d72d-4cdf-a341-855d3dcf774d",
+      "16c52ba4-ffe7-481f-89e0-b26c8019447c",
+      "2f00a615-1120-4b85-8612-44ef88d27db7",
+      "43f2bf79-4008-4ff9-8d0b-10205d13560e",
+      "791ba63a-74dc-41df-9f69-da816a8fb520",
+      "b69db72b-4503-4569-b5c9-ff7a1010e909",
+      "eefa9594-472d-4b60-84c3-2719fde26d83",
+      "fb1f6f15-c2de-4a17-adda-64909cb33e4a",
+      "fed66b06-02b0-4e14-a401-6c14e3e6e37b"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 12,
+    "actualCount": 11,
+    "expectedAccepted": 12,
+    "actualAccepted": 11,
+    "expectedConflicts": 0,
+    "actualConflicts": 0,
+    "expectedRequestsPerSeat": {
+      "cmv1v91cc000cwy7t6wmqnn1o": 1,
+      "cmv1v91cc000dwy7tl6wg2i0a": 1,
+      "cmv1v91cc000lwy7tnghe8ah2": 1,
+      "cmv1v91cc000mwy7tnxrethv7": 1,
+      "cmv1v91cc000nwy7t9qgplj47": 1,
+      "cmv1v91cc000owy7tz4u297ni": 1,
+      "cmv1v91cc000pwy7trrxinsrt": 1,
+      "cmv1v91cc000qwy7to20jjrt8": 1,
+      "cmv1v91cc000rwy7t3zhwm3q4": 1,
+      "cmv1v91cc000swy7tu42pt0jx": 1,
+      "cmv1v91cc000twy7t4aopwcqi": 1,
+      "cmv1v91cc000uwy7tywpb9tef": 1
+    },
+    "actualRequestsPerSeat": {
+      "cmv1v91cc000cwy7t6wmqnn1o": 1,
+      "cmv1v91cc000lwy7tnghe8ah2": 1,
+      "cmv1v91cc000mwy7tnxrethv7": 1,
+      "cmv1v91cc000nwy7t9qgplj47": 1,
+      "cmv1v91cc000owy7tz4u297ni": 1,
+      "cmv1v91cc000pwy7trrxinsrt": 1,
+      "cmv1v91cc000qwy7to20jjrt8": 1,
+      "cmv1v91cc000rwy7t3zhwm3q4": 1,
+      "cmv1v91cc000swy7tu42pt0jx": 1,
+      "cmv1v91cc000twy7t4aopwcqi": 1,
+      "cmv1v91cc000uwy7tywpb9tef": 1
+    },
+    "missingRequestIds": [
+      "local-spike-20261010040009-61892-req-000011"
+    ],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "rebooking": null,
+  "consistency": {
+    "pass": false,
+    "reasons": [
+      "REQUEST_ATTEMPT_COUNT_MISMATCH",
+      "MISSING_REQUEST_ATTEMPT",
+      "REQUEST_DISTRIBUTION_MISMATCH",
+      "EXPECTED_ACCEPTED_MISMATCH",
+      "UNEXPECTED_ERROR_OBSERVED",
+      "REQUEST_ATTEMPT_COUNTER_MISMATCH"
+    ]
+  },
+  "experimentVerdict": {
+    "kind": "recovery-preflight",
+    "status": "NOT_APPLICABLE",
+    "integrationChecksPassed": false,
+    "reasons": [
+      "LOAD_THRESHOLD_EXCEEDED",
+      "CONSISTENCY_AUDIT_FAILED"
+    ]
+  }
+}

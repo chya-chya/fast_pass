@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { hostname } from 'node:os';
 import Redis from 'ioredis';
+import { isDisposableTestEnvironment } from '../health/test-environment-access';
 
 export type TrackedReservationData = {
   userId: string;
@@ -127,9 +128,8 @@ export class TestRunTrackerService implements OnModuleInit {
   normalizeTracking(runId?: string, requestId?: string) {
     if (!runId && !requestId) return {};
     if (
-      process.env.NODE_ENV === 'production' ||
+      !isDisposableTestEnvironment() ||
       process.env.ENABLE_TEST_PREFLIGHT !== 'true' ||
-      process.env.TEST_ENVIRONMENT !== 'local-disposable' ||
       process.env.ALLOW_TEST_DATA_MUTATION !== 'true' ||
       !runId ||
       !requestId ||
@@ -162,6 +162,25 @@ export class TestRunTrackerService implements OnModuleInit {
       throw new BadRequestException('test tracking environment rejected');
     }
     return `${prefix}run:${runId}:`;
+  }
+
+  private usesCompactRemoteTracking(): boolean {
+    return process.env.TEST_ENVIRONMENT === 'remote-disposable';
+  }
+
+  private requestIndex(runId: string, requestId: string): number {
+    const prefix = `${runId}-req-`;
+    const raw = requestId.startsWith(prefix)
+      ? requestId.slice(prefix.length)
+      : '';
+    if (!/^[0-9]{6,8}$/.test(raw)) {
+      throw new BadRequestException('test request ID is invalid');
+    }
+    const index = Number(raw);
+    if (!Number.isSafeInteger(index) || index < 0 || index > 99_999_999) {
+      throw new BadRequestException('test request index is invalid');
+    }
+    return index;
   }
 
   private reclaimIdleMs(): number {
@@ -253,6 +272,23 @@ export class TestRunTrackerService implements OnModuleInit {
     const pipeline = this.redis.pipeline();
     for (const item of tracked) {
       const base = this.base(item.runId!);
+      if (this.usesCompactRemoteTracking()) {
+        pipeline.eval(
+          `
+            if redis.call('setbit', KEYS[1], ARGV[1], 1) == 1 then return 0 end
+            redis.call('hincrby', KEYS[2], 'attempts', 1)
+            redis.call('expire', KEYS[1], ARGV[2])
+            redis.call('expire', KEYS[2], ARGV[2])
+            return 1
+          `,
+          2,
+          `${base}attempted_bitmap`,
+          `${base}counters`,
+          this.requestIndex(item.runId!, item.requestId!),
+          TRACKING_TTL_SECONDS,
+        );
+        continue;
+      }
       pipeline.eval(
         `
           if redis.call('hexists', KEYS[1], ARGV[1]) == 1 then return 0 end
@@ -287,6 +323,34 @@ export class TestRunTrackerService implements OnModuleInit {
       const payload = JSON.stringify(item);
       if (item.runId && item.requestId) {
         const base = this.base(item.runId);
+        if (this.usesCompactRemoteTracking()) {
+          pipeline.eval(
+            `
+              local stream_id = redis.call('xadd', KEYS[1], '*',
+                'reservationId', ARGV[2], 'payload', ARGV[1])
+              if redis.call('setbit', KEYS[2], ARGV[3], 1) == 1 then
+                redis.call('xdel', KEYS[1], stream_id)
+                return redis.error_reply('duplicate remote request index')
+              end
+              redis.call('hincrby', KEYS[3], 'enqueue', 1)
+              local depth = redis.call('xlen', KEYS[1])
+              local maximum = tonumber(redis.call('hget', KEYS[3], 'max_queue_depth') or '0')
+              if depth > maximum then redis.call('hset', KEYS[3], 'max_queue_depth', depth) end
+              redis.call('expire', KEYS[2], ARGV[4])
+              redis.call('expire', KEYS[3], ARGV[4])
+              return stream_id
+            `,
+            3,
+            RESERVATION_STREAM,
+            `${base}accepted_bitmap`,
+            `${base}counters`,
+            payload,
+            item.id,
+            this.requestIndex(item.runId, item.requestId),
+            TRACKING_TTL_SECONDS,
+          );
+          continue;
+        }
         pipeline.eval(
           `
             local stream_id = redis.call('xadd', KEYS[1], '*',
@@ -439,6 +503,26 @@ export class TestRunTrackerService implements OnModuleInit {
   ): Promise<void> {
     if (!data.runId || !data.requestId) return;
     const base = this.base(data.runId);
+    if (this.usesCompactRemoteTracking()) {
+      await this.redis.eval(
+        `
+          local is_first = redis.call('setbit', KEYS[1], ARGV[1], 1) == 0
+          if is_first then
+            redis.call('hincrby', KEYS[2], 'processing_started', 1)
+            redis.call('hincrby', KEYS[2], 'worker_in_flight', 1)
+          end
+          redis.call('expire', KEYS[1], ARGV[2])
+          redis.call('expire', KEYS[2], ARGV[2])
+          return is_first and 1 or 0
+        `,
+        2,
+        `${base}processing_bitmap`,
+        `${base}counters`,
+        this.requestIndex(data.runId, data.requestId),
+        TRACKING_TTL_SECONDS,
+      );
+      return;
+    }
     await this.redis.eval(
       `
         local is_first = redis.call('hsetnx', KEYS[1], ARGV[1], ARGV[2])
@@ -474,6 +558,11 @@ export class TestRunTrackerService implements OnModuleInit {
   ): Promise<void> {
     if (!data?.runId || !data.requestId) return;
     const base = this.base(data.runId);
+    if (this.usesCompactRemoteTracking()) {
+      await this.redis.hincrby(`${base}counters`, 'retry', 1);
+      await this.redis.expire(`${base}counters`, TRACKING_TTL_SECONDS);
+      return;
+    }
     const transaction = this.redis.multi();
     transaction.hset(
       `${base}processing`,
@@ -585,6 +674,28 @@ export class TestRunTrackerService implements OnModuleInit {
     await this.beginFinalization(message, 'SUCCESS');
     if (data?.runId && data.requestId) {
       const base = this.base(data.runId);
+      if (this.usesCompactRemoteTracking()) {
+        await this.redis.eval(
+          `
+            if redis.call('setbit', KEYS[1], ARGV[1], 1) == 1 then return 0 end
+            redis.call('setbit', KEYS[2], ARGV[1], 1)
+            redis.call('setbit', KEYS[3], ARGV[1], 0)
+            redis.call('hincrby', KEYS[4], 'processed_success', 1)
+            redis.call('hincrby', KEYS[4], 'worker_in_flight', -1)
+            for index = 1, 4 do redis.call('expire', KEYS[index], ARGV[2]) end
+            return 1
+          `,
+          4,
+          `${base}terminal_success_bitmap`,
+          `${base}processed_bitmap`,
+          `${base}processing_bitmap`,
+          `${base}counters`,
+          this.requestIndex(data.runId, data.requestId),
+          TRACKING_TTL_SECONDS,
+        );
+        await this.acknowledge(message);
+        return;
+      }
       await this.redis.eval(
         `
           if redis.call('hsetnx', KEYS[1], ARGV[1], 'SUCCESS') == 0 then return 0 end
@@ -618,6 +729,27 @@ export class TestRunTrackerService implements OnModuleInit {
     await this.beginFinalization(message, 'FAILURE', failureCode);
     if (data?.runId && data.requestId) {
       const base = this.base(data.runId);
+      if (this.usesCompactRemoteTracking()) {
+        await this.redis.eval(
+          `
+            if redis.call('setbit', KEYS[1], ARGV[1], 1) == 1 then return 0 end
+            redis.call('setbit', KEYS[2], ARGV[1], 0)
+            redis.call('hincrby', KEYS[3], 'processed_failure', 1)
+            redis.call('hincrby', KEYS[3], 'dlq', 1)
+            redis.call('hincrby', KEYS[3], 'worker_in_flight', -1)
+            for index = 1, 3 do redis.call('expire', KEYS[index], ARGV[2]) end
+            return 1
+          `,
+          3,
+          `${base}terminal_failure_bitmap`,
+          `${base}processing_bitmap`,
+          `${base}counters`,
+          this.requestIndex(data.runId, data.requestId),
+          TRACKING_TTL_SECONDS,
+        );
+        await this.acknowledge(message);
+        return;
+      }
       await this.redis.eval(
         `
           if redis.call('hsetnx', KEYS[1], ARGV[1], 'FAILURE') == 0 then return 0 end

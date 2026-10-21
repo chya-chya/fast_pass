@@ -7,7 +7,12 @@ import {
   Header,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertTestEnvironmentAccess } from './test-environment-access';
+import {
+  assertTestEnvironmentAccess,
+  isDisposableTestEnvironment,
+} from './test-environment-access';
+import { readTracingConfig } from '../observability/tracing-config';
+import { readAccessTokenTtlSeconds } from '../auth/access-token-ttl';
 
 type RedisHealthClient = {
   get(key: string): Promise<string | null>;
@@ -24,10 +29,37 @@ type MigrationIdentity = {
   migrationId: string;
 };
 
+type RedisEnvironmentMarker = {
+  testEnvId: string;
+  redisId: string;
+  keyPrefix: string;
+};
+
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/;
 const DATABASE_NAME_PATTERN = /^fast_pass_k6_[a-z0-9_]{3,48}$/;
 const BUILD_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const MIGRATION_ID_PATTERN = /^[0-9]{14}(?:_[A-Za-z0-9_-]{1,64})?$/;
+
+function parseRedisMarker(value: string | null): RedisEnvironmentMarker | null {
+  if (!value) return null;
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    typeof candidate.testEnvId !== 'string' ||
+    typeof candidate.redisId !== 'string' ||
+    typeof candidate.keyPrefix !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    testEnvId: candidate.testEnvId,
+    redisId: candidate.redisId,
+    keyPrefix: candidate.keyPrefix,
+  };
+}
 
 @Controller('health')
 export class TestEnvironmentHealthController {
@@ -50,7 +82,7 @@ export class TestEnvironmentHealthController {
     const normalizedEnvId = testEnvId.toLowerCase().replace(/[.-]/g, '_');
 
     if (
-      process.env.TEST_ENVIRONMENT !== 'local-disposable' ||
+      !isDisposableTestEnvironment() ||
       process.env.ALLOW_TEST_DATA_MUTATION !== 'true' ||
       !SAFE_ID_PATTERN.test(appId) ||
       !SAFE_ID_PATTERN.test(testEnvId) ||
@@ -82,10 +114,11 @@ export class TestEnvironmentHealthController {
       const migrationId = migrationRows[0]?.migrationId;
       const ping = await this.redis.ping();
       const markerText = await this.redis.get(`${redisKeyPrefix}environment`);
-      const marker = markerText ? JSON.parse(markerText) : null;
+      const marker = parseRedisMarker(markerText);
       const configuredRedisTls = Boolean(
         this.redis.options?.tls || this.redis.options?.redisOptions?.tls,
       );
+      const tracing = readTracingConfig();
 
       if (
         !database ||
@@ -117,8 +150,16 @@ export class TestEnvironmentHealthController {
           keyPrefix: redisKeyPrefix,
           tlsMode: configuredRedisTls ? 'require' : 'disable',
         },
+        observability: {
+          tracingEnabled: tracing.enabled,
+          traceSampleRatio: tracing.sampleRatio,
+          minSpanDurationMs: tracing.minSpanDurationMs,
+        },
+        authentication: {
+          accessTokenTtlSeconds: readAccessTokenTtlSeconds(),
+        },
       };
-    } catch (_) {
+    } catch {
       throw new ServiceUnavailableException('test environment is not ready');
     }
   }

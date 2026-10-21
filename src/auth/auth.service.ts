@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthRepository } from './auth.repository';
 import { SignUpDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { readAccessTokenTtlSeconds } from './access-token-ttl';
 
 @Injectable()
 export class AuthService {
@@ -47,7 +48,9 @@ export class AuthService {
     }
 
     const payload = { sub: user.id, email: user.email };
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: readAccessTokenTtlSeconds(),
+    });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);

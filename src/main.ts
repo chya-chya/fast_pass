@@ -8,6 +8,7 @@ import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { startWorkerMetricsServer } from './observability/worker-metrics';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -32,5 +33,6 @@ async function bootstrap() {
 
   console.log('Deploy Test: CI/CD Pipeline triggered');
   await app.listen(process.env.PORT ?? 3000);
+  await startWorkerMetricsServer();
 }
 void bootstrap();

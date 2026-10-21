@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-rps-20261010030834-20194",
+  "scenario": "capacity-rps",
+  "dataset": {
+    "cacheProfile": "warm",
+    "vus": 10,
+    "iterationsPerVu": null,
+    "totalRequests": null,
+    "seatCount": 1,
+    "expectedAccepted": null,
+    "expectedConflicts": null,
+    "requestsPerSeat": null,
+    "capacityProfile": "hot-seat",
+    "userBehavior": null,
+    "thinkTime": null,
+    "requestBudget": 0,
+    "rpsTestProfile": "explore",
+    "rpsDataProfile": "hot-seat",
+    "rpsRequestBudget": 64,
+    "preAllocatedVUs": 4,
+    "maxVUs": 10
+  },
+  "capacityStages": null,
+  "rpsStages": [
+    {
+      "stage": 1,
+      "targetOfferedRps": 1,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 1,
+      "completedResponses": 1,
+      "startedReservationRps": 0.5,
+      "completedResponseRps": 0.5
+    },
+    {
+      "stage": 2,
+      "targetOfferedRps": 2,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 3,
+      "completedResponses": 3,
+      "startedReservationRps": 1.5,
+      "completedResponseRps": 1.5
+    },
+    {
+      "stage": 3,
+      "targetOfferedRps": 3,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 2000,
+      "startedRequests": 6,
+      "completedResponses": 6,
+      "startedReservationRps": 3,
+      "completedResponseRps": 3
+    },
+    {
+      "stage": 4,
+      "targetOfferedRps": 4,
+      "rampDuration": "1s",
+      "holdDuration": "1s",
+      "measurementWindowMs": 3000,
+      "startedRequests": 9,
+      "completedResponses": 9,
+      "startedReservationRps": 3,
+      "completedResponseRps": 3
+    }
+  ],
+  "rpsLoad": {
+    "timeUnit": "1s",
+    "targetOfferedRps": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "offeredIterations": 19,
+    "startedReservationRequests": 19,
+    "completedResponses": 19,
+    "droppedIterations": 0,
+    "offeredRps": 2.111111111111111,
+    "startedReservationRps": 2.111111111111111,
+    "completedResponseRps": 2.111111111111111,
+    "serverEnqueued": null,
+    "serverEnqueueRps": null,
+    "serverEnqueueSource": "server-metrics.json"
+  },
+  "generatedAt": "2026-10-10T03:08:52.130Z",
+  "thresholdPassed": true,
+  "thresholdFailures": [],
+  "verdict": {
+    "kind": "exploratory",
+    "status": "LIMIT_NOT_FOUND",
+    "regressionStatus": "NOT_APPLICABLE",
+    "reasons": [],
+    "failedMetrics": []
+  },
+  "metrics": {
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 38,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate==1": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 43.331,
+        "min": 2.485,
+        "med": 15.815,
+        "max": 118.919,
+        "p(90)": 109.9892,
+        "p(95)": 110.7,
+        "p(99)": 115.48479999999999
+      },
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.4,
+        "passes": 18,
+        "fails": 27
+      },
+      "thresholds": {}
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 19,
+        "rate": 1.7702518677088914
+      },
+      "thresholds": {}
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 4,
+        "min": 4,
+        "max": 4
+      },
+      "thresholds": {}
+    },
+    "accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.09317115093204692
+      },
+      "thresholds": {}
+    },
+    "expected_conflict": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 1.6770807167768447,
+        "count": 18
+      },
+      "thresholds": {}
+    },
+    "unexpected_error": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "timeout": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "request_start_offset_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 5546.315789473684,
+        "min": 1502,
+        "med": 5835,
+        "max": 8295,
+        "p(90)": 7801.2,
+        "p(95)": 8031.3,
+        "p(99)": 8242.26
+      },
+      "thresholds": {}
+    },
+    "accepted_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 16.937,
+        "min": 16.937,
+        "med": 16.937,
+        "max": 16.937,
+        "p(90)": 16.937,
+        "p(95)": 16.937,
+        "p(99)": 16.937
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "expected_conflict_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 6.69,
+        "med": 11.4805,
+        "max": 16.621,
+        "p(90)": 15.1934,
+        "p(95)": 15.935899999999998,
+        "p(99)": 16.48398,
+        "avg": 11.615166666666665
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        },
+        "p(99)<500": {
+          "ok": true
+        }
+      }
+    },
+    "unexpected_error_duration_ms": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        },
+        "p(99)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "reservation_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 19,
+        "rate": 1.7702518677088914
+      },
+      "thresholds": {}
+    },
+    "reservation_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 1.7702518677088914,
+        "count": 19
+      },
+      "thresholds": {}
+    },
+    "rps_stage_1_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.09317115093204692
+      },
+      "thresholds": {}
+    },
+    "rps_stage_2_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3,
+        "rate": 0.27951345279614076
+      },
+      "thresholds": {}
+    },
+    "rps_stage_3_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 6,
+        "rate": 0.5590269055922815
+      },
+      "thresholds": {}
+    },
+    "rps_stage_4_requests_started": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 9,
+        "rate": 0.8385403583884223
+      },
+      "thresholds": {}
+    },
+    "rps_stage_1_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.09317115093204692
+      },
+      "thresholds": {}
+    },
+    "rps_stage_2_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3,
+        "rate": 0.27951345279614076
+      },
+      "thresholds": {}
+    },
+    "rps_stage_3_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.5590269055922815,
+        "count": 6
+      },
+      "thresholds": {}
+    },
+    "rps_stage_4_responses_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 9,
+        "rate": 0.8385403583884223
+      },
+      "thresholds": {}
+    }
+  }
+}

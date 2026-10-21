@@ -16,7 +16,9 @@ function assertEqual(actual, expected, label) {
 
 async function main() {
   const config = loadConfig(process.env, { requireExecution: true });
-  if (!config.isLocal) throw new Error('preflight target is not loopback');
+  if (!config.isLocal && process.env.REMOTE_APPROVAL_VERIFIED !== 'true') {
+    throw new Error('remote approval is not verified');
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -55,6 +57,8 @@ async function main() {
   assertObject(body, 'health response');
   assertObject(body.database, 'database health');
   assertObject(body.redis, 'redis health');
+  assertObject(body.observability, 'observability health');
+  assertObject(body.authentication, 'authentication health');
   assertEqual(body.appId, config.expectedAppId, 'application identity');
   assertEqual(body.buildSha, config.expectedBuildSha, 'application build');
   assertEqual(body.testEnvId, config.testEnvId, 'test environment identity');
@@ -78,6 +82,28 @@ async function main() {
     config.expectedRedisTlsMode,
     'Redis TLS mode',
   );
+  assertEqual(
+    body.observability.tracingEnabled,
+    config.expectedTracingEnabled,
+    'tracing mode',
+  );
+  assertEqual(
+    body.observability.traceSampleRatio,
+    config.expectedTraceSampleRatio,
+    'trace sample ratio',
+  );
+  assertEqual(
+    body.observability.minSpanDurationMs,
+    config.expectedMinSpanDurationMs,
+    'trace duration filter',
+  );
+  if (config.loadAccessTokenTtlSeconds) {
+    assertEqual(
+      body.authentication.accessTokenTtlSeconds,
+      config.loadAccessTokenTtlSeconds,
+      'access token TTL',
+    );
+  }
 
   process.stdout.write(
     'preflight verified: disposable environment identities match\n',

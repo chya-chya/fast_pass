@@ -2,6 +2,38 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildCleanupPlan } from '../lib/cleanup.js';
+import {
+  assertRemoteDrainState,
+  assertRangeRecoveryAuthorized,
+  executeCleanup,
+  isRetryableCleanupError,
+} from '../tools/cleanup.mjs';
+
+test('remote cleanup requires a completed drain or an untouched prepared fixture', () => {
+  assert.doesNotThrow(() =>
+    assertRemoteDrainState(
+      { producer: 'COMPLETED' },
+      { enqueue: '3', processed_success: '3', worker_in_flight: '0' },
+      0,
+    ),
+  );
+  assert.doesNotThrow(() =>
+    assertRemoteDrainState(
+      { producer: 'PREPARED' },
+      { enqueue: '0', worker_in_flight: '0' },
+      0,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertRemoteDrainState(
+        { producer: 'OPEN' },
+        { enqueue: '1', processed_success: '1', worker_in_flight: '0' },
+        0,
+      ),
+    /verified producer and worker drain/,
+  );
+});
 
 function config() {
   return {
@@ -68,4 +100,94 @@ test('rejects duplicate or unsafe IDs before any deletion is possible', () => {
     () => buildCleanupPlan(config(), { ...fixture(), seatIds: ['../seat'] }),
     /unsafe ID/,
   );
+});
+
+test('builds a wildcard-free deterministic range cleanup for remote runs', () => {
+  const remoteConfig = {
+    ...config(),
+    testEnvironment: 'remote-disposable',
+    userCount: 1_000_000,
+    seatCount: 1_000_000,
+  };
+  const plan = buildCleanupPlan(remoteConfig, {
+    schemaVersion: 2,
+    runId: remoteConfig.runId,
+    testEnvId: remoteConfig.testEnvId,
+    eventId: 'cleanup-run-event',
+    performanceId: 'cleanup-run-performance',
+    userRange: { kind: 'deterministic-v1', start: 0, count: 1_000_000 },
+    seatRange: { kind: 'deterministic-v1', start: 0, count: 1_000_000 },
+  });
+  assert.equal(plan.database.userRange.count, 1_000_000);
+  assert.equal(plan.database.reservationOwnership.value, remoteConfig.runId);
+  assert.equal(JSON.stringify(plan).includes('*'), false);
+});
+
+test('uses run ownership and compact Redis keys for a remote ID fixture', () => {
+  const remoteConfig = {
+    ...config(),
+    testEnvironment: 'remote-disposable',
+  };
+  const plan = buildCleanupPlan(remoteConfig, fixture());
+  assert.deepEqual(plan.database.reservationOwnership, {
+    field: 'testRunId',
+    value: remoteConfig.runId,
+  });
+  assert.ok(
+    plan.redis.keys.includes('k6:cleanup-env:run:cleanup-run:attempted_bitmap'),
+  );
+  assert.ok(
+    plan.redis.keys.includes(
+      'k6:cleanup-env:run:cleanup-run:terminal_success_bitmap',
+    ),
+  );
+  assert.ok(
+    !plan.redis.keys.includes('k6:cleanup-env:run:cleanup-run:requests'),
+  );
+  assert.equal(JSON.stringify(plan).includes('*'), false);
+});
+
+test('range recovery accepts the verified run environment passed by the agent', () => {
+  const remoteConfig = {
+    isLocal: false,
+    fixtureSeedMode: 'chunked-bulk',
+  };
+  const authorization = {
+    REMOTE_APPROVAL_VERIFIED: 'true',
+    REMOTE_CLEANUP_AUTHORIZED: 'true',
+    ALLOW_TEST_DATA_DELETE: 'true',
+  };
+  assert.doesNotThrow(() =>
+    assertRangeRecoveryAuthorized(remoteConfig, authorization),
+  );
+  assert.throws(
+    () =>
+      assertRangeRecoveryAuthorized(remoteConfig, {
+        ...authorization,
+        REMOTE_CLEANUP_AUTHORIZED: 'false',
+      }),
+    /not authorized/,
+  );
+});
+
+test('cleanup reads authorization from the explicit verified runtime', async () => {
+  await assert.rejects(
+    () =>
+      executeCleanup(
+        { isLocal: false },
+        {},
+        {
+          ALLOW_TEST_DATA_DELETE: 'true',
+          REMOTE_CLEANUP_AUTHORIZED: 'true',
+          REMOTE_APPROVAL_VERIFIED: 'true',
+        },
+      ),
+    /database connection is required/,
+  );
+});
+
+test('cleanup retries only PostgreSQL deadlocks', () => {
+  assert.equal(isRetryableCleanupError({ code: '40P01' }), true);
+  assert.equal(isRetryableCleanupError({ code: '57014' }), false);
+  assert.equal(isRetryableCleanupError(new Error('deadlock detected')), false);
 });

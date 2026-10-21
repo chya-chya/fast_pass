@@ -9,6 +9,8 @@
 - [5단계 검증 기록](./PHASE5_VERIFICATION.md): 단일 좌석·균등 inventory의 결정적 요청 배정과 Warm/Cold Cache 격리 통합 검증 근거를 기록한다.
 - [6단계 검증 기록](./PHASE6_VERIFICATION.md): 취소·만료 이력을 보존하면서 활성 예약 단일성과 동일 좌석 재예약을 검증한 근거를 기록한다.
 - [7단계 큐 내구성 검증](./QUEUE_DURABILITY.md): DB 실패와 worker 중단 경계의 메시지 보존·복구 가능성, `NO_GO` 판정과 설계 대안을 기록한다.
+- [성능 관측 방법론](./METHODOLOGY.md): 예약·Redis Streams·DB 영속화·Node/PM2 지표의 의미, PromQL과 집계 규칙을 기록한다.
+- [8단계 검증 기록](./PHASE8_VERIFICATION.md): Run 시간창 앱 metric 수집과 격리 request→enqueue→DB persistence 통합 검증 근거를 기록한다.
 
 ## 권장 진행 순서
 

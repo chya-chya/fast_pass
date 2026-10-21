@@ -16,10 +16,13 @@ services:
       - '9090:9090'
     volumes:
       - ./prometheus.yml.template:/etc/prometheus/prometheus.yml.template
+      - ./prometheus.test.yml.template:/etc/prometheus/prometheus.test.yml.template
       - ./monitoring-entrypoint.sh:/bin/monitoring-entrypoint.sh
     environment:
+      - MONITORING_PROFILE=${MONITORING_PROFILE:-test}
+      - PROMETHEUS_SCRAPE_INTERVAL=${PROMETHEUS_SCRAPE_INTERVAL:-2s}
       - APP_TARGET=${APP_TARGET:-app:3000}
-      - PM2_METRICS_TARGET=${PM2_METRICS_TARGET:-app:9615}
+      - PM2_METRICS_TARGET=${PM2_METRICS_TARGET:-app:9209}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=${AWS_REGION:-ap-northeast-2}

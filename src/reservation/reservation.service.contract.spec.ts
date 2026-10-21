@@ -12,7 +12,13 @@ describe('ReservationService result contract', () => {
     jest.restoreAllMocks();
   });
 
-  function createService(pipelineResult: unknown) {
+  function createService(
+    pipelineResult: unknown,
+    metrics?: {
+      recordRequestOutcome: jest.Mock;
+      recordLuaResult: jest.Mock;
+    },
+  ) {
     const pipeline = {
       eval: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue(pipelineResult),
@@ -39,9 +45,44 @@ describe('ReservationService result contract', () => {
       counter as never,
       counter as never,
       tracker as never,
+      metrics as never,
     );
     return { service, redis, prisma, tracker };
   }
+
+  it('records accepted and expected-conflict request outcomes', async () => {
+    const acceptedMetrics = {
+      recordRequestOutcome: jest.fn(),
+      recordLuaResult: jest.fn(),
+    };
+    const accepted = createService([[null, 'OK']], acceptedMetrics);
+    const acceptedPending = accepted.service.reserveSeat('user-1', {
+      seatId: 'seat-1',
+    });
+    await flush(accepted.service);
+    await expect(acceptedPending).resolves.toMatchObject({ status: 'PENDING' });
+    expect(acceptedMetrics.recordRequestOutcome).toHaveBeenCalledWith(
+      'accepted',
+    );
+    expect(acceptedMetrics.recordLuaResult).toHaveBeenCalledWith('OK');
+
+    const conflictMetrics = {
+      recordRequestOutcome: jest.fn(),
+      recordLuaResult: jest.fn(),
+    };
+    const conflict = createService([[null, 'FAIL']], conflictMetrics);
+    const conflictPending = conflict.service.reserveSeat('user-1', {
+      seatId: 'seat-1',
+    });
+    await flush(conflict.service);
+    await expect(conflictPending).rejects.toMatchObject({
+      errorCode: 'SEAT_ALREADY_RESERVED',
+    });
+    expect(conflictMetrics.recordRequestOutcome).toHaveBeenCalledWith(
+      'expected_conflict',
+    );
+    expect(conflictMetrics.recordLuaResult).toHaveBeenCalledWith('FAIL');
+  });
 
   async function flush(service: ReservationService) {
     await (service as unknown as { flushQueue(): Promise<void> }).flushQueue();

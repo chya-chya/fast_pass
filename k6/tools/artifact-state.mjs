@@ -18,8 +18,12 @@ const FAILURE_CODES = new Set([
   'K6_FAILED',
   'INTERRUPTED',
   'ARTIFACT_VALIDATION_FAILED',
+  'ARTIFACT_UPLOAD_FAILED',
   'AUDIT_FAILED',
   'RUNNER_FAILED',
+  'WATCHDOG_ABORTED',
+  'WATCHDOG_FAILED',
+  'K6_THRESHOLD_ABORTED',
 ]);
 const SUMMARY_METRICS = new Set([
   'checks',
@@ -31,9 +35,59 @@ const SUMMARY_METRICS = new Set([
   'expected_conflict',
   'unexpected_error',
   'timeout',
+  'unexpected_error_rate',
   'request_start_offset_ms',
   'rebooking_first_accepted',
   'rebooking_second_accepted',
+  'reservation_requests',
+  'accepted_duration_ms',
+  'expected_conflict_duration_ms',
+  'unexpected_error_duration_ms',
+  'timeout_duration_ms',
+  'capacity_stage_1_requests',
+  'capacity_stage_2_requests',
+  'capacity_stage_3_requests',
+  'capacity_stage_4_requests',
+  'dropped_iterations',
+  'reservation_requests_started',
+  'reservation_responses_completed',
+  'rps_stage_1_requests_started',
+  'rps_stage_2_requests_started',
+  'rps_stage_3_requests_started',
+  'rps_stage_4_requests_started',
+  'rps_stage_1_responses_completed',
+  'rps_stage_2_responses_completed',
+  'rps_stage_3_responses_completed',
+  'rps_stage_4_responses_completed',
+  'load_requests_started',
+  'load_responses_completed',
+  'spike_baseline_requests_started',
+  'spike_baseline_responses_completed',
+  'spike_baseline_accepted_duration_ms',
+  'spike_baseline_unexpected_error',
+  'spike_baseline_timeout',
+  'spike_peak_requests_started',
+  'spike_peak_responses_completed',
+  'spike_peak_accepted_duration_ms',
+  'spike_peak_unexpected_error',
+  'spike_peak_timeout',
+  'spike_recovery_requests_started',
+  'spike_recovery_responses_completed',
+  'spike_recovery_accepted_duration_ms',
+  'spike_recovery_unexpected_error',
+  'spike_recovery_timeout',
+  'soak_requests_started',
+  'soak_responses_completed',
+  'soak_accepted_duration_ms',
+  'soak_unexpected_error',
+  'soak_timeout',
+  ...Array.from({ length: 6 }, (_, index) => [
+    `soak_window_${index + 1}_requests_started`,
+    `soak_window_${index + 1}_responses_completed`,
+    `soak_window_${index + 1}_accepted_duration_ms`,
+    `soak_window_${index + 1}_unexpected_error`,
+    `soak_window_${index + 1}_timeout`,
+  ]).flat(),
 ]);
 const SENSITIVE_KEY =
   /(authorization|password|secret|access.?token|refresh.?token|database.?url|redis.?url|preflight.?token)/i;
@@ -107,6 +161,11 @@ async function getPaths(config) {
     audit: path.join(resultDirectory, 'consistency-audit.json'),
     metricsTemp: path.join(resultDirectory, '.server-metrics.json.tmp'),
     metrics: path.join(resultDirectory, 'server-metrics.json'),
+    metricsBaselineTemp: path.join(
+      resultDirectory,
+      '.app-metrics-baseline.json.tmp',
+    ),
+    watchdogTemp: path.join(resultDirectory, '.watchdog.json.tmp'),
     reportTemp: path.join(resultDirectory, '.report.md.tmp'),
     report: path.join(resultDirectory, 'report.md'),
     checksums: path.join(resultDirectory, 'checksums.sha256'),
@@ -147,6 +206,22 @@ function validateSummary(summary, config) {
 }
 
 function validateFixture(fixture, config) {
+  if (fixture?.schemaVersion === 2) {
+    if (
+      fixture.runId !== config.runId ||
+      fixture.testEnvId !== config.testEnvId ||
+      fixture.userRange?.kind !== 'deterministic-v1' ||
+      fixture.seatRange?.kind !== 'deterministic-v1' ||
+      !Number.isInteger(fixture.userRange.count) ||
+      !Number.isInteger(fixture.seatRange.count) ||
+      !fixture.counts ||
+      typeof fixture.counts !== 'object'
+    ) {
+      throw new Error('fixture range manifest schema is invalid');
+    }
+    assertNoSecrets(fixture, 'fixture manifest');
+    return;
+  }
   if (
     !fixture ||
     fixture.schemaVersion !== 1 ||
@@ -167,6 +242,29 @@ function validateFixture(fixture, config) {
 }
 
 function validateAudit(audit, config) {
+  if (audit?.schemaVersion === 2) {
+    if (
+      audit.runId !== config.runId ||
+      audit.testEnvId !== config.testEnvId ||
+      !audit.drain ||
+      !audit.queues ||
+      !audit.counters ||
+      !audit.database ||
+      !audit.aggregateIds ||
+      !audit.consistency ||
+      typeof audit.consistency.pass !== 'boolean' ||
+      !Array.isArray(audit.consistency.reasons) ||
+      !audit.requestAudit ||
+      typeof audit.requestAudit.expectedCount !== 'number' ||
+      typeof audit.requestAudit.actualCount !== 'number' ||
+      !audit.experimentVerdict ||
+      !Array.isArray(audit.experimentVerdict.reasons)
+    ) {
+      throw new Error('range consistency audit schema is invalid');
+    }
+    assertNoSecrets(audit, 'consistency audit');
+    return;
+  }
   if (
     !audit ||
     audit.schemaVersion !== 1 ||
@@ -204,13 +302,22 @@ function validateAudit(audit, config) {
   ) {
     throw new Error('rebooking audit schema is invalid');
   }
+  if (
+    ['spike', 'soak'].includes(config.scenario) &&
+    (!audit.experimentVerdict ||
+      typeof audit.experimentVerdict.kind !== 'string' ||
+      typeof audit.experimentVerdict.status !== 'string' ||
+      !Array.isArray(audit.experimentVerdict.reasons))
+  ) {
+    throw new Error('long-run experiment verdict is invalid');
+  }
   assertNoSecrets(audit, 'consistency audit');
 }
 
 function validateServerMetrics(metrics, config) {
   if (
     !metrics ||
-    metrics.schemaVersion !== 1 ||
+    ![1, 2].includes(metrics.schemaVersion) ||
     metrics.runId !== config.runId ||
     !metrics.window ||
     !metrics.app ||
@@ -225,6 +332,34 @@ function validateServerMetrics(metrics, config) {
     }
     if (component.status === 'unavailable' && !component.reason) {
       throw new Error('unavailable server metrics require a reason');
+    }
+  }
+  if (
+    metrics.schemaVersion === 2 &&
+    (metrics.window.timezone !== 'UTC' ||
+      typeof metrics.app.valid !== 'boolean' ||
+      !Array.isArray(metrics.app.missingMetrics) ||
+      !metrics.pm2)
+  ) {
+    throw new Error('server metrics observability schema is invalid');
+  }
+  if (
+    (['spike', 'soak'].includes(config.scenario) || !config.isLocal) &&
+    (!metrics.load ||
+      !metrics.watchdog ||
+      metrics.watchdog.runId !== config.runId ||
+      !['COMPLETED', 'ABORTED'].includes(metrics.watchdog.status))
+  ) {
+    if (!config.isLocal && !['spike', 'soak'].includes(config.scenario)) {
+      if (
+        !metrics.watchdog ||
+        metrics.watchdog.runId !== config.runId ||
+        !['COMPLETED', 'ABORTED'].includes(metrics.watchdog.status)
+      ) {
+        throw new Error('remote watchdog metrics are invalid');
+      }
+    } else {
+      throw new Error('long-run watchdog metrics are invalid');
     }
   }
   assertNoSecrets(metrics, 'server metrics');
@@ -256,6 +391,22 @@ export async function initializeArtifacts(config) {
   const script = await readFile(path.join(repositoryRoot, config.scriptPath));
   const gitSha = commandOutput('git', ['rev-parse', 'HEAD']);
   const gitStatus = commandOutput('git', ['status', '--porcelain']);
+  if (
+    !config.isLocal &&
+    (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$/.test(
+      process.env.REMOTE_APPROVAL_ID || '',
+    ) ||
+      !/^[0-9a-f]{64}$/.test(process.env.REMOTE_APPROVAL_CHECKSUM || '') ||
+      !/^[0-9a-f]{64}$/.test(process.env.REMOTE_PROFILE_SHA256 || '') ||
+      !/^[0-9a-f]{64}$/.test(process.env.REMOTE_INFRASTRUCTURE_SHA256 || '') ||
+      !/^sha256:[0-9a-f]{64}$/.test(process.env.APP_IMAGE_DIGEST || '') ||
+      !/^sha256:[0-9a-f]{64}$/.test(process.env.RUNNER_IMAGE_DIGEST || '') ||
+      !/^\d{17}$/.test(process.env.REMOTE_EXECUTION_TIMESTAMP || '') ||
+      !['baseline', 'candidate'].includes(process.env.REMOTE_IMAGE_ROLE) ||
+      !process.env.REMOTE_APPROVAL_VERSION_ID)
+  ) {
+    throw new Error('remote artifact identity is incomplete');
+  }
   const metadata = {
     schemaVersion: 1,
     runId: config.runId,
@@ -277,6 +428,29 @@ export async function initializeArtifacts(config) {
       k6: commandOutput('k6', ['version']),
     },
     parameters: toPublicConfig(config),
+    ...(config.isLocal
+      ? {}
+      : {
+          remoteApproval: {
+            approvalId: process.env.REMOTE_APPROVAL_ID,
+            versionId: process.env.REMOTE_APPROVAL_VERSION_ID,
+            checksum: process.env.REMOTE_APPROVAL_CHECKSUM,
+            manifestUri: process.env.REMOTE_APPROVAL_MANIFEST,
+            executionTimestamp: process.env.REMOTE_EXECUTION_TIMESTAMP,
+          },
+          immutableImages: {
+            role: process.env.REMOTE_IMAGE_ROLE,
+            applicationGitSha: config.expectedBuildSha,
+            applicationDigest: process.env.APP_IMAGE_DIGEST,
+            runnerDigest: process.env.RUNNER_IMAGE_DIGEST,
+          },
+          comparability: {
+            profileSha256: process.env.REMOTE_PROFILE_SHA256,
+            infrastructureSha256: process.env.REMOTE_INFRASTRUCTURE_SHA256,
+            cacheProfile: config.cacheProfile,
+            tracingEnabled: config.expectedTracingEnabled,
+          },
+        }),
   };
   assertNoSecrets(metadata, 'metadata');
   await atomicWrite(paths.metadata, `${JSON.stringify(metadata, null, 2)}\n`);
@@ -307,6 +481,8 @@ export async function markIncomplete(config, execution, statusReason) {
     paths.fixtureTemp,
     paths.auditTemp,
     paths.metricsTemp,
+    paths.metricsBaselineTemp,
+    paths.watchdogTemp,
     paths.reportTemp,
   ]) {
     try {
@@ -370,6 +546,7 @@ export async function finalizeArtifacts(config, execution, statusReason) {
       pass: audit.consistency.pass,
       reasons: audit.consistency.reasons,
     },
+    verdict: audit.experimentVerdict || summary.verdict,
     artifacts: [
       'metadata.json',
       'fixture-manifest.json',
@@ -403,12 +580,19 @@ export async function finalizeArtifacts(config, execution, statusReason) {
     unlink(paths.fixtureTemp),
     unlink(paths.auditTemp),
     unlink(paths.metricsTemp),
+    unlink(paths.metricsBaselineTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
+    unlink(paths.watchdogTemp).catch((error) => {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }),
     unlink(paths.reportTemp),
   ]);
 }
 
 export async function verifyArtifacts(config) {
   const paths = await getPaths(config);
+  const metadata = await readMetadata(paths.metadata, config);
   const checksumText = await readFile(paths.checksums, 'utf8');
   const expectedFiles = new Set([
     'metadata.json',
@@ -417,6 +601,7 @@ export async function verifyArtifacts(config) {
     'consistency-audit.json',
     'server-metrics.json',
     'report.md',
+    ...(metadata.artifacts?.includes('cleanup.json') ? ['cleanup.json'] : []),
   ]);
   const entries = checksumText
     .trim()
@@ -442,19 +627,78 @@ export async function verifyArtifacts(config) {
     throw new Error('checksum manifest is incomplete');
 }
 
+async function sealCleanup(config) {
+  const paths = await getPaths(config);
+  const metadata = await readMetadata(paths.metadata, config);
+  if (
+    metadata.artifactSet !== 'FINALIZED' ||
+    metadata.artifacts?.includes('cleanup.json')
+  ) {
+    throw new Error('cleanup seal requires an unsealed finalized run');
+  }
+  const cleanupPath = path.join(paths.resultDirectory, 'cleanup.json');
+  const cleanup = JSON.parse(await readFile(cleanupPath, 'utf8'));
+  if (
+    ![1, 2].includes(cleanup.schemaVersion) ||
+    cleanup.runId !== config.runId ||
+    cleanup.testEnvId !== config.testEnvId ||
+    cleanup.mode !== 'executed' ||
+    cleanup.verification?.runOwnedRowsRemaining !== 0 ||
+    cleanup.verification?.foreignRunDataPreserved !== true
+  ) {
+    throw new Error('cleanup result is not verified');
+  }
+  assertNoSecrets(cleanup, 'cleanup');
+  const finalMetadata = {
+    ...metadata,
+    cleanup: {
+      status: 'VERIFIED',
+      executedAt: cleanup.executedAt,
+    },
+    artifacts: [...metadata.artifacts, 'cleanup.json'],
+  };
+  const metadataText = `${JSON.stringify(finalMetadata, null, 2)}\n`;
+  const names = [
+    'fixture-manifest.json',
+    'summary.json',
+    'consistency-audit.json',
+    'server-metrics.json',
+    'report.md',
+    'cleanup.json',
+  ];
+  const checksumLines = [`${sha256(metadataText)}  metadata.json`];
+  for (const name of names) {
+    checksumLines.push(
+      `${sha256(await readFile(path.join(paths.resultDirectory, name)))}  ${name}`,
+    );
+  }
+  checksumLines.push('');
+  await atomicWrite(paths.metadata, metadataText);
+  await atomicWrite(paths.checksums, checksumLines.join('\n'));
+  await verifyArtifacts(config);
+}
+
 async function main() {
   const [command, execution, statusReason] = process.argv.slice(2);
   if (
-    !['init', 'preflight', 'finalize', 'incomplete', 'verify'].includes(command)
+    ![
+      'init',
+      'preflight',
+      'finalize',
+      'incomplete',
+      'verify',
+      'seal-cleanup',
+    ].includes(command)
   ) {
     throw new Error(
-      'usage: artifact-state.mjs init|preflight|finalize|incomplete|verify',
+      'usage: artifact-state.mjs init|preflight|finalize|incomplete|verify|seal-cleanup',
     );
   }
   const config = loadConfig(process.env, { requireExecution: true });
   if (command === 'init') return initializeArtifacts(config);
   if (command === 'preflight') return markPreflightVerified(config);
   if (command === 'verify') return verifyArtifacts(config);
+  if (command === 'seal-cleanup') return sealCleanup(config);
   if (command === 'finalize')
     return finalizeArtifacts(config, execution, statusReason);
   return markIncomplete(config, execution, statusReason);

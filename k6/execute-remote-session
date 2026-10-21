@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repository_root="$(cd "${script_dir}/.." && pwd -P)"
+cd "${repository_root}"
+
+if [[ $# -lt 1 || " $* " != *' --execute '* ]]; then
+  echo 'usage: k6/execute-remote-session --approval-id ID --version-id ID --checksum SHA256 --execute' >&2
+  exit 64
+fi
+
+cleanup_attempted=0
+stop_generator() {
+  local original_status=$?
+  trap - EXIT
+  if [[ ${cleanup_attempted} -eq 0 ]]; then
+    cleanup_attempted=1
+    if ! k6/manage-remote-generator stop --execute; then
+      echo 'remote session warning: automatic generator cleanup failed; its fail-safe termination remains armed' >&2
+      if [[ ${original_status} -eq 0 ]]; then
+        original_status=1
+      fi
+    fi
+  fi
+  exit "${original_status}"
+}
+trap stop_generator EXIT
+
+k6/run-remote execute "$@"

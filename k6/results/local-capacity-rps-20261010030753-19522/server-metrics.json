@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 2,
+  "runId": "local-capacity-rps-20261010030753-19522",
+  "window": {
+    "startedAt": "2026-10-10T03:08:00.470Z",
+    "endedAt": "2026-10-10T03:08:08.624Z",
+    "timezone": "UTC"
+  },
+  "app": {
+    "status": "available",
+    "reason": null,
+    "valid": true,
+    "sourceUri": null,
+    "sourceType": "direct_metrics_window_snapshot",
+    "rawQueries": [
+      {
+        "endpointPath": "/metrics",
+        "metricNames": [
+          "reservation_request_total",
+          "reservation_request_outcome_total",
+          "reservation_lua_result_total",
+          "reservation_queue_total",
+          "reservation_processed_total",
+          "reservation_queue_depth_messages",
+          "reservation_queue_processing_messages",
+          "reservation_queue_retry_messages",
+          "reservation_queue_dlq_messages",
+          "reservation_queue_oldest_message_age_seconds",
+          "reservation_queue_metrics_collection_up",
+          "reservation_queue_retry_scan_complete",
+          "reservation_persistence_latency_seconds",
+          "reservation_scheduler_batch_size",
+          "reservation_scheduler_batch_duration_seconds",
+          "process_resident_memory_bytes",
+          "nodejs_heap_size_used_bytes",
+          "process_start_time_seconds",
+          "nodejs_eventloop_lag_seconds"
+        ],
+        "timezone": "UTC"
+      }
+    ],
+    "missingMetrics": [],
+    "summary": {
+      "capturedAt": {
+        "start": "2026-10-10T03:08:00.661Z",
+        "end": "2026-10-10T03:08:08.623Z"
+      },
+      "missingMetrics": [],
+      "counterResetDetected": false,
+      "counters": {
+        "requests": 20,
+        "outcomes": {
+          "accepted": 20,
+          "expected_conflict": 0,
+          "unexpected_failure": 0
+        },
+        "luaResults": {
+          "OK": 20,
+          "FAIL": 0,
+          "MISS": 0,
+          "WAIT": 0,
+          "ERROR": 0,
+          "UNKNOWN": 0
+        },
+        "enqueue": {
+          "success": 20,
+          "fail": 0
+        },
+        "processed": {
+          "success": 20,
+          "fail": 0
+        }
+      },
+      "queue": {
+        "depth": 0,
+        "processing": 0,
+        "retry": 0,
+        "dlq": 0,
+        "oldestMessageAgeSeconds": 0,
+        "collectionUp": 1,
+        "retryScanComplete": 1
+      },
+      "histograms": {
+        "persistenceLatencySeconds": {
+          "count": 20,
+          "sum": 1.389,
+          "p50UpperBound": 0.1,
+          "p95UpperBound": 0.25,
+          "p99UpperBound": 0.25,
+          "resetDetected": false
+        },
+        "schedulerBatchSize": {
+          "count": 79,
+          "sum": 20,
+          "p50UpperBound": 0,
+          "p95UpperBound": 1,
+          "p99UpperBound": 1,
+          "resetDetected": false
+        },
+        "schedulerBatchDurationSeconds": {
+          "count": 79,
+          "sum": 0.717966457,
+          "p50UpperBound": 0.005,
+          "p95UpperBound": 0.05,
+          "p99UpperBound": 0.05,
+          "resetDetected": false
+        }
+      },
+      "process": {
+        "rssBytesSum": 226164736,
+        "rssBytesMax": 226164736,
+        "heapBytesSum": 82946824,
+        "heapBytesMax": 82946824,
+        "eventLoopLagSecondsMax": 0.001403125,
+        "processStartTimeSeconds": 1791601679
+      }
+    }
+  },
+  "load": {
+    "timeUnit": "1s",
+    "measurementWindowMs": 5000,
+    "offeredIterations": 20,
+    "startedReservationRequests": 20,
+    "serverEnqueued": 20,
+    "completedResponses": 20,
+    "droppedIterations": 0,
+    "offeredRps": 4,
+    "startedReservationRps": 4,
+    "serverEnqueueRps": 4,
+    "completedResponseRps": 4
+  },
+  "database": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "rawQueries": [
+      {
+        "statement": "pg_stat_database current database connections and transaction totals",
+        "timezone": "UTC"
+      }
+    ],
+    "missingMetrics": [
+      "query_latency_time_series",
+      "lock_wait_duration_time_series"
+    ],
+    "summary": {
+      "connections": 2,
+      "transactionsCommitted": "139",
+      "transactionsRolledBack": "0"
+    }
+  },
+  "redis": {
+    "status": "available",
+    "reason": null,
+    "sourceUri": null,
+    "sourceType": "direct_local_snapshot",
+    "rawQueries": [
+      {
+        "command": "INFO",
+        "timezone": "UTC"
+      }
+    ],
+    "missingMetrics": [
+      "command_latency_time_series"
+    ],
+    "summary": {
+      "connected_clients": 2,
+      "used_memory": 1879680,
+      "instantaneous_ops_per_sec": 171,
+      "evicted_keys": 0
+    }
+  },
+  "pm2": {
+    "status": "unavailable",
+    "reason": "local disposable run does not use PM2",
+    "sourceUri": null,
+    "rawQueries": [
+      {
+        "metricNames": [
+          "pm2_cpu",
+          "pm2_memory",
+          "pm2_uptime",
+          "pm2_restarts",
+          "pm2_loop_delay"
+        ],
+        "timezone": "UTC"
+      }
+    ],
+    "missingMetrics": [
+      "pm2 process metrics"
+    ]
+  }
+}

@@ -15,11 +15,58 @@ function uniqueSafeIds(values, label) {
 }
 
 export function buildCleanupPlan(config, fixture) {
+  if (fixture?.schemaVersion === 2) {
+    if (
+      fixture.runId !== config.runId ||
+      fixture.testEnvId !== config.testEnvId ||
+      config.testEnvironment !== 'remote-disposable' ||
+      config.redisKeyPrefix !== `k6:${config.testEnvId}:` ||
+      fixture.userRange?.kind !== 'deterministic-v1' ||
+      fixture.seatRange?.kind !== 'deterministic-v1' ||
+      fixture.userRange.start !== 0 ||
+      fixture.seatRange.start !== 0 ||
+      !Number.isInteger(fixture.userRange.count) ||
+      !Number.isInteger(fixture.seatRange.count) ||
+      fixture.userRange.count < 1 ||
+      fixture.seatRange.count < 1 ||
+      fixture.userRange.count !== config.userCount ||
+      fixture.seatRange.count !== config.seatCount ||
+      fixture.eventId !== fixtureId(config.runId, 'event') ||
+      fixture.performanceId !== fixtureId(config.runId, 'performance')
+    ) {
+      throw new Error('cleanup range ownership boundary does not match');
+    }
+    return {
+      schemaVersion: 2,
+      mode: 'dry-run',
+      runId: config.runId,
+      testEnvId: config.testEnvId,
+      database: {
+        reservationOwnership: { field: 'testRunId', value: config.runId },
+        userRange: fixture.userRange,
+        seatRange: fixture.seatRange,
+        performanceId: fixture.performanceId,
+        eventId: fixture.eventId,
+      },
+      redis: {
+        runBase: `${config.redisKeyPrefix}run:${config.runId}:`,
+        deterministicSeatRange: fixture.seatRange,
+      },
+      forbiddenOperations: [
+        'wildcard',
+        'truncate',
+        'database-reset',
+        'shared-key-delete',
+      ],
+    };
+  }
   if (
     fixture.schemaVersion !== 1 ||
     fixture.runId !== config.runId ||
     fixture.testEnvId !== config.testEnvId ||
-    config.testEnvironment !== 'local-disposable' ||
+    !['local-disposable', 'remote-disposable'].includes(
+      config.testEnvironment,
+    ) ||
     config.redisKeyPrefix !== `k6:${config.testEnvId}:`
   ) {
     throw new Error('cleanup ownership boundary does not match');
@@ -36,16 +83,30 @@ export function buildCleanupPlan(config, fixture) {
     'reservation IDs',
   );
   const base = `${config.redisKeyPrefix}run:${config.runId}:`;
-  const runKeys = [
-    'fixture',
-    'state',
-    'counters',
-    'accepted',
-    'processing',
-    'processed',
-    'failed',
-    'requests',
-  ].map((suffix) => `${base}${suffix}`);
+  const runKeySuffixes =
+    config.testEnvironment === 'remote-disposable'
+      ? [
+          'fixture',
+          'state',
+          'counters',
+          'attempted_bitmap',
+          'accepted_bitmap',
+          'processing_bitmap',
+          'processed_bitmap',
+          'terminal_success_bitmap',
+          'terminal_failure_bitmap',
+        ]
+      : [
+          'fixture',
+          'state',
+          'counters',
+          'accepted',
+          'processing',
+          'processed',
+          'failed',
+          'requests',
+        ];
+  const runKeys = runKeySuffixes.map((suffix) => `${base}${suffix}`);
   const seatKeys = seatIds.flatMap((seatId) => [
     `seat:${seatId}:status`,
     `locks:seats:${seatId}`,
@@ -57,6 +118,10 @@ export function buildCleanupPlan(config, fixture) {
     testEnvId: config.testEnvId,
     database: {
       reservationIds,
+      reservationOwnership:
+        config.testEnvironment === 'remote-disposable'
+          ? { field: 'testRunId', value: config.runId }
+          : null,
       seatIds,
       performanceIds,
       eventIds,
@@ -71,3 +136,4 @@ export function buildCleanupPlan(config, fixture) {
     ],
   };
 }
+import { fixtureId } from './fixture-range.js';

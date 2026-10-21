@@ -14,6 +14,10 @@ import {
   registerFixture,
 } from '../lib/api.js';
 import { loadConfig } from '../lib/config.js';
+import { requestIdFor } from '../lib/consistency.js';
+import { transientFixtureEmail } from '../lib/fixture-identity.js';
+import { fixtureEmail, fixtureId } from '../lib/fixture-range.js';
+import { assertRemoteLoadWindow } from '../lib/load-window.js';
 import { recordReservationOutcome } from '../lib/metrics.js';
 import { createHandleSummary } from '../lib/summary.js';
 
@@ -50,13 +54,44 @@ function randomText(length) {
 
 export function setup() {
   const config = loadConfig(__ENV, { requireExecution: true });
+  if (config.fixtureSeedMode === 'chunked-bulk') {
+    if (config.isLocal || !__ENV.FIXTURE_USER_PASSWORD) {
+      throw new Error('approved remote fixture credentials are required');
+    }
+    const tokens = [];
+    for (let index = 0; index < config.userCount; index += 1) {
+      const body = parseRequiredObject(
+        login(config.baseUrl, {
+          email: fixtureEmail(config.runId, index),
+          password: __ENV.FIXTURE_USER_PASSWORD,
+        }),
+        200,
+        ['accessToken'],
+        'fixture login',
+      );
+      tokens.push(body.accessToken);
+    }
+    assertRemoteLoadWindow(config, __ENV);
+    return {
+      tokens,
+      userIds: Array.from({ length: config.userCount }, (_, index) =>
+        fixtureId(config.runId, 'user', index),
+      ),
+      eventId: fixtureId(config.runId, 'event'),
+      performanceId: fixtureId(config.runId, 'performance'),
+      seatIds: Array.from({ length: config.seatCount }, (_, index) =>
+        fixtureId(config.runId, 'seat', index),
+      ),
+    };
+  }
   const tokens = [];
   const userIds = [];
   const fixtureSuffix = `${config.runId}-${randomText(10)}`;
+  const emailNonce = randomText(20);
 
   for (let index = 0; index < config.userCount; index += 1) {
     const credentials = {
-      email: `k6-${index}-${fixtureSuffix}@example.invalid`,
+      email: transientFixtureEmail('smoke', index, emailNonce),
       password: `K6-${randomText(24)}-9a`,
       name: `k6-${config.runId}-${index}`,
     };
@@ -132,7 +167,10 @@ export function setup() {
 export default function (data) {
   const index = (exec.vu.idInTest - 1) % data.seatIds.length;
   const token = data.tokens[index % data.tokens.length];
-  const requestId = `${inspectConfig.runId}-req-${exec.scenario.iterationInTest}`;
+  const requestId = requestIdFor(
+    inspectConfig.runId,
+    exec.scenario.iterationInTest,
+  );
   const response = createReservation(
     inspectConfig.baseUrl,
     token,

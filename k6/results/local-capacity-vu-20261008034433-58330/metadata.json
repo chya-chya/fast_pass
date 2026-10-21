@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-vu-20261008034433-58330",
+  "scenario": "capacity-vu",
+  "startedAt": "2026-10-08T03:44:40.363Z",
+  "finishedAt": "2026-10-08T03:44:55.661Z",
+  "execution": "COMPLETED",
+  "artifactSet": "FINALIZED",
+  "preflight": "VERIFIED",
+  "preflightVerifiedAt": "2026-10-08T03:44:40.574Z",
+  "statusReason": "NONE",
+  "source": {
+    "gitSha": "09e9cce9180a4b190b7c269ac9ae82e35d08de6e",
+    "gitDirty": false,
+    "scriptSha256": "0cea357831dc9c1dcea75bcc91b4f71a71200f9c5ad3369438e29cb21d4dda9c"
+  },
+  "runtime": {
+    "node": "v24.11.1",
+    "k6": "k6 v1.4.2 (commit/devel, go1.25.4, darwin/arm64)"
+  },
+  "parameters": {
+    "baseUrl": "http://127.0.0.1:58837",
+    "runId": "local-capacity-vu-20261008034433-58330",
+    "scenario": "capacity-vu",
+    "scriptPath": "k6/scenarios/capacity-vu.js",
+    "vus": 4,
+    "rps": null,
+    "duration": "13000ms",
+    "userCount": 4,
+    "seatCount": 1,
+    "cacheProfile": "warm",
+    "executor": "ramping-vus",
+    "iterationsPerVu": null,
+    "totalIterations": null,
+    "totalRequests": null,
+    "requestsPerSeat": null,
+    "expectedAccepted": null,
+    "expectedConflicts": null,
+    "capacityProfile": "hot-seat",
+    "capacityTargets": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "capacityRampDuration": "1s",
+    "capacityStageHolds": [
+      "2s",
+      "2s",
+      "2s",
+      "2s"
+    ],
+    "capacityRequestBudget": 64,
+    "capacityRequiredRequestBudget": 38,
+    "capacityUserBehavior": "reserve-then-think",
+    "capacityThinkTime": "1s",
+    "testEnvironment": "local-disposable",
+    "testEnvId": "k6int2026100803443358330",
+    "testDatabaseName": "fast_pass_k6_k6int2026100803443358330",
+    "testRedisId": "redis-k6int2026100803443358330",
+    "redisKeyPrefix": "k6:k6int2026100803443358330:",
+    "expectedAppId": "fast_pass",
+    "expectedBuildSha": "41e4942a319e4477a1bf281141e59d15f6dd64a7",
+    "expectedMigrationId": "20261002082100_drop_legacy_reservation_seat_unique",
+    "expectedDbTlsMode": "disable",
+    "expectedRedisTlsMode": "disable",
+    "expectedTracingEnabled": false,
+    "expectedTraceSampleRatio": 0.1,
+    "expectedMinSpanDurationMs": 0,
+    "resultDir": "k6/results/local-capacity-vu-20261008034433-58330",
+    "remoteExecutionEnabled": false
+  },
+  "audit": {
+    "pass": true,
+    "reasons": []
+  },
+  "verdict": {
+    "kind": "exploratory",
+    "status": "NOT_APPLICABLE",
+    "sloThresholdsPassed": true
+  },
+  "artifacts": [
+    "metadata.json",
+    "fixture-manifest.json",
+    "summary.json",
+    "consistency-audit.json",
+    "server-metrics.json",
+    "report.md"
+  ]
+}

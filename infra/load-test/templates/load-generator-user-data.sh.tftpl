@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y docker jq util-linux
+systemctl enable --now docker amazon-ssm-agent
+
+install -d -m 0700 /run/fast-pass
+mount -t tmpfs -o size=16m,mode=0700 tmpfs /run/fast-pass
+
+# A missed cleanup must not leave the paid generator running indefinitely.
+# EC2 is configured to terminate when the guest shuts down.
+systemd-run \
+  --unit=fast-pass-load-generator-expiry \
+  --description='Terminate the temporary FastPass load generator' \
+  --on-active='${load_generator_max_lifetime_hours}h' \
+  /usr/sbin/shutdown -h now
+
+aws ecr get-login-password --region '${aws_region}' | docker login --username AWS --password-stdin '${ecr_registry}'
+docker pull '${runner_image_uri}'
+printf '%s\n' '${runner_image_uri}' > /etc/fast-pass-runner-image
+chmod 0600 /etc/fast-pass-runner-image

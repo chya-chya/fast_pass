@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-rps-20261010030834-20194",
+  "testEnvId": "k6int2026101003083420194",
+  "performanceId": "cmv1teoyl000bp57tfrwjojxb",
+  "auditedAt": "2026-10-10T03:08:53.293Z",
+  "producer": {
+    "state": "COMPLETED"
+  },
+  "drain": {
+    "timedOut": false,
+    "timeoutMs": 30000,
+    "pollMs": 100,
+    "stableMs": 1000,
+    "elapsedMs": 1069
+  },
+  "queues": {
+    "pending": 0,
+    "processing": 0,
+    "retry": 0,
+    "dlq": 0
+  },
+  "counters": {
+    "attempts": 19,
+    "enqueue": 1,
+    "processingStarted": 1,
+    "processedSuccess": 1,
+    "processedFailure": 0,
+    "retry": 0,
+    "dlq": 0,
+    "workerInFlight": 0,
+    "maxQueueDepth": 1,
+    "conservationDifference": 0
+  },
+  "database": {
+    "reservationCount": 1,
+    "distinctSeatCount": 1,
+    "duplicateSeats": [],
+    "duplicateActiveSeats": [],
+    "seatStatusDistribution": {
+      "HELD": 1
+    },
+    "reservationStatusDistribution": {
+      "PENDING": 1
+    }
+  },
+  "ids": {
+    "acceptedRequestIds": [
+      "local-capacity-rps-20261010030834-20194-req-000000"
+    ],
+    "acceptedReservationIds": [
+      "eab08f65-4bf6-46cf-b6cd-e228b035cd7e"
+    ],
+    "processedReservationIds": [
+      "eab08f65-4bf6-46cf-b6cd-e228b035cd7e"
+    ],
+    "persistedReservationIds": [
+      "eab08f65-4bf6-46cf-b6cd-e228b035cd7e"
+    ],
+    "failedReservationIds": [],
+    "missingPersistedIds": [],
+    "unexpectedPersistedIds": [],
+    "missingProcessedIds": [],
+    "unexpectedProcessedIds": []
+  },
+  "requestAudit": {
+    "expectedCount": 19,
+    "actualCount": 19,
+    "expectedAccepted": 1,
+    "actualAccepted": 1,
+    "expectedConflicts": 18,
+    "actualConflicts": 18,
+    "expectedRequestsPerSeat": {
+      "cmv1teoym000cp57tbb83ek3r": 19
+    },
+    "actualRequestsPerSeat": {
+      "cmv1teoym000cp57tbb83ek3r": 19
+    },
+    "missingRequestIds": [],
+    "unexpectedRequestIds": [],
+    "mismatchedRequestIds": []
+  },
+  "rebooking": null,
+  "consistency": {
+    "pass": true,
+    "reasons": []
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-capacity-vu-20261008034009-55803",
+  "testEnvId": "k6int2026100803400955803",
+  "userIds": [
+    "cmuyznl3000006i7td2hlimyq",
+    "cmuyznl8000016i7t83rrriw6",
+    "cmuyznlct00026i7tjratbr94",
+    "cmuyznlhn00036i7txdf93t1h"
+  ],
+  "eventIds": [
+    "cmuyznll800046i7tj5twrt5s"
+  ],
+  "performanceIds": [
+    "cmuyznllk00056i7txw26ytgk"
+  ],
+  "seatIds": [
+    "cmuyznlll00066i7tf6c428w6"
+  ],
+  "requestIds": [
+    "local-capacity-vu-20261008034009-55803-req-000000"
+  ],
+  "reservationIds": [
+    "de12a0c4-880e-4897-920a-43e2bb435183"
+  ],
+  "scenario": "capacity-vu",
+  "cacheProfile": "warm",
+  "requestManifest": {
+    "schemaVersion": 2,
+    "requestBudget": 64,
+    "assignment": "global_iteration_hot_seat"
+  },
+  "capacityProfile": "hot-seat",
+  "userBehavior": "reserve-then-think",
+  "thinkTimeMs": 1000,
+  "expectedAccepted": 1,
+  "expectedConflicts": 29,
+  "requestsPerSeat": {
+    "cmuyznlll00066i7tf6c428w6": 30
+  },
+  "counts": {
+    "users": 4,
+    "events": 1,
+    "performances": 1,
+    "seats": 1,
+    "acceptedReservations": 1,
+    "requestAttempts": 30
+  }
+}

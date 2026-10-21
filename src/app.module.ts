@@ -21,11 +21,29 @@ import 'winston-mongodb';
 
 import { ScheduleModule } from '@nestjs/schedule';
 import { HealthModule } from './health/health.module';
+import { hostname } from 'node:os';
+
+const workerInstance = process.env.NODE_APP_INSTANCE || '0';
+const pmId = process.env.pm_id || workerInstance;
+const workerGeneration =
+  process.env.PM2_WORKER_GENERATION || process.env.restart_time || '0';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    PrometheusModule.register(),
+    PrometheusModule.register({
+      defaultMetrics: {
+        enabled: true,
+        config: { eventLoopMonitoringPrecision: 10 },
+      },
+      defaultLabels: {
+        host: hostname(),
+        app_instance: workerInstance,
+        pm_id: pmId,
+        pid: String(process.pid),
+        worker_generation: workerGeneration,
+      },
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
     }),

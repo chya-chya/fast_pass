@@ -1,0 +1,11 @@
+{
+  "name": "fast-pass-remote-load-runner",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "ajv": "8.20.0",
+    "bcrypt": "6.0.0",
+    "ioredis": "5.8.2",
+    "pg": "8.16.3"
+  }
+}

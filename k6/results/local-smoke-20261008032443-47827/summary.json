@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "runId": "local-smoke-20261008032443-47827",
+  "scenario": "smoke",
+  "dataset": {
+    "cacheProfile": "warm",
+    "vus": 1,
+    "iterationsPerVu": 1,
+    "totalRequests": 1,
+    "seatCount": 5,
+    "expectedAccepted": 1,
+    "expectedConflicts": 0,
+    "requestsPerSeat": 0.2
+  },
+  "generatedAt": "2026-10-08T03:24:57.345Z",
+  "thresholdPassed": true,
+  "thresholdFailures": [],
+  "metrics": {
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 2,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate==1": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 18.887500000000003,
+        "max": 120.063,
+        "p(90)": 90.26820000000001,
+        "p(95)": 105.16559999999998,
+        "avg": 36.490125,
+        "min": 7.93
+      },
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 8
+      },
+      "thresholds": {}
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.14262079981744538,
+        "count": 1
+      },
+      "thresholds": {}
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 1,
+        "max": 1
+      },
+      "thresholds": {}
+    },
+    "accepted": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 0.14262079981744538
+      },
+      "thresholds": {}
+    },
+    "unexpected_error": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "timeout": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    }
+  }
+}
